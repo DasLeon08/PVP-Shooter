@@ -84,12 +84,17 @@
             background: linear-gradient(45deg, #00ffcc, #00b3ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
         .menu-subtitle { font-size: 24px; color: #aaa; margin-top: -10px; margin-bottom: 40px; font-weight: 400;}
 
-        .map-select {
-            padding: 12px 20px; font-size: 22px; margin-bottom: 30px; font-family: 'Teko', sans-serif;
-            background: rgba(0,0,0,0.5); color: white; border: 1px solid #555; border-radius: 8px;
-            outline: none; transition: border 0.3s; width: 100%; box-sizing: border-box;
+        .map-card {
+            background: rgba(0, 0, 0, 0.4); border: 2px solid #333; border-radius: 12px;
+            padding: 20px 15px; width: 120px; cursor: pointer; transition: all 0.2s;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
-        .map-select:focus { border-color: #00ffcc; }
+        .map-card:hover { transform: translateY(-5px); border-color: #555; background: rgba(0, 0, 0, 0.6); }
+        .map-card.active { border-color: #00ffcc; background: rgba(0, 255, 204, 0.1); box-shadow: 0 5px 20px rgba(0,255,204,0.3); transform: translateY(-5px); }
+        .map-name { font-size: 26px; font-weight: 600; color: #fff; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;}
+        .map-card.active .map-name { color: #00ffcc; }
+        .map-desc { font-size: 16px; color: #aaa; text-align: center; line-height: 1.1; font-family: sans-serif; font-weight: normal; }
 
         .menu-btn {
             padding: 15px 40px; font-size: 28px; font-family: 'Teko', sans-serif; font-weight: 600;
@@ -171,16 +176,45 @@
             <h1 class="menu-title">FPS Build Simulator</h1>
             <h2 class="menu-subtitle">Multiplayer Edition</h2>
 
-            <div style="margin-top: 30px; text-align: left;">
-                <label for="mapSelect" style="font-size: 22px; display: block; margin-bottom: 5px; color: #ccc;">Select Arena</label>
-                <select id="mapSelect" class="map-select">
-                    <option value="classic">Classic Grid</option>
+            <div style="margin-top: 20px; text-align: left;">
+                <label style="font-size: 22px; display: block; margin-bottom: 10px; color: #ccc; text-align: center;">Select Arena</label>
+                <div style="display: flex; gap: 15px; margin-bottom: 30px; justify-content: center;">
+                    <div class="map-card active" data-map="classic">
+                        <div class="map-name">Classic</div>
+                        <div class="map-desc">Standard Neon Grid</div>
+                    </div>
+                    <div class="map-card" data-map="island">
+                        <div class="map-name">Island</div>
+                        <div class="map-desc">Open Sand Arena</div>
+                    </div>
+                    <div class="map-card" data-map="platform">
+                        <div class="map-name">Platform</div>
+                        <div class="map-desc">Dark Void Falloff</div>
+                    </div>
+                </div>
+                <!-- Hidden select to maintain compatibility with main.js -->
+                <select id="mapSelect" style="display: none;">
+                    <option value="classic" selected>Classic Grid</option>
                     <option value="island">Island Arena</option>
                     <option value="platform">Sky Platform</option>
                 </select>
             </div>
 
             <button id="playBtn" class="menu-btn">Drop In</button>
+
+            <script>
+                // Map card selection logic
+                document.querySelectorAll('.map-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        // Remove active class from all
+                        document.querySelectorAll('.map-card').forEach(c => c.classList.remove('active'));
+                        // Add active class to clicked
+                        card.classList.add('active');
+                        // Update hidden select value
+                        document.getElementById('mapSelect').value = card.dataset.map;
+                    });
+                });
+            </script>
         </div>
     </div>
 

@@ -293,9 +293,9 @@ function init() {
 
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.9);
-    bloomPass.threshold = 2.5; // Even higher threshold to absolutely prevent sky blooming
-    bloomPass.strength = 1.2; // Softened glow
-    bloomPass.radius = 0.3;
+    bloomPass.threshold = 1.0; // Lowered threshold so weapon accents glow cleanly without the sky affecting it
+    bloomPass.strength = 1.5; // Boosted glow strength for sci-fi look
+    bloomPass.radius = 0.5;
 
     const outputPass = new OutputPass();
 
@@ -444,31 +444,82 @@ function init() {
         }
     });
 
-    // --- WEAPON MESH ---
+    // --- WEAPON MESH (Detailed Rifle) ---
     gunMesh = new THREE.Group();
 
-    const gunBarrelGeo = new THREE.BoxGeometry(0.08, 0.08, 0.6);
-    const gunBodyGeo = new THREE.BoxGeometry(0.1, 0.15, 0.4);
-    const gunMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
-    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.0 });
+    // Materials
+    const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.8 });
+    const greyPolymer = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+    const neonMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.5 });
 
-    const barrel = new THREE.Mesh(gunBarrelGeo, gunMat);
-    barrel.position.z = -0.2;
+    // Main Body/Receiver
+    const receiverGeo = new THREE.BoxGeometry(0.12, 0.18, 0.45);
+    const receiver = new THREE.Mesh(receiverGeo, darkMetal);
+    receiver.position.set(0, 0, 0.05);
 
-    const bodyMesh = new THREE.Mesh(gunBodyGeo, gunMat);
-    bodyMesh.position.z = 0.1;
+    // Barrel
+    const barrelGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.6, 16);
+    const barrel = new THREE.Mesh(barrelGeo, darkMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, -0.4);
 
-    const scope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.15), accentMat);
-    scope.position.set(0, 0.1, 0.1);
+    // Handguard
+    const handguardGeo = new THREE.BoxGeometry(0.08, 0.12, 0.35);
+    const handguard = new THREE.Mesh(handguardGeo, greyPolymer);
+    handguard.position.set(0, 0, -0.3);
+
+    // Stock
+    const stockGeo = new THREE.BoxGeometry(0.06, 0.15, 0.3);
+    const stock = new THREE.Mesh(stockGeo, greyPolymer);
+    stock.position.set(0, -0.05, 0.4);
+
+    // Magazine (Angled)
+    const magGeo = new THREE.BoxGeometry(0.06, 0.2, 0.1);
+    const mag = new THREE.Mesh(magGeo, greyPolymer);
+    mag.rotation.x = -Math.PI / 16;
+    mag.position.set(0, -0.15, 0);
+
+    // Pistol Grip
+    const gripGeo = new THREE.BoxGeometry(0.05, 0.15, 0.08);
+    const grip = new THREE.Mesh(gripGeo, greyPolymer);
+    grip.rotation.x = Math.PI / 16;
+    grip.position.set(0, -0.12, 0.15);
+
+    // Holographic Sight (Base & Glass)
+    const sightBaseGeo = new THREE.BoxGeometry(0.08, 0.05, 0.12);
+    const sightBase = new THREE.Mesh(sightBaseGeo, darkMetal);
+    sightBase.position.set(0, 0.11, 0.05);
+
+    const sightGlassGeo = new THREE.BoxGeometry(0.06, 0.08, 0.02);
+    const sightGlass = new THREE.Mesh(sightGlassGeo, new THREE.MeshStandardMaterial({
+        color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5
+    }));
+    sightGlass.position.set(0, 0.15, 0.05);
+
+    // Neon Accents
+    const railGeo = new THREE.BoxGeometry(0.02, 0.02, 0.3);
+    const rail = new THREE.Mesh(railGeo, neonMat);
+    rail.position.set(0, 0.06, -0.3);
+
+    const dotGeo = new THREE.SphereGeometry(0.01, 8, 8);
+    const dot = new THREE.Mesh(dotGeo, neonMat);
+    dot.position.set(0, 0.15, 0.05); // Centered in sight glass
 
     // Muzzle Flash light
-    const muzzleFlash = new THREE.PointLight(0x00ffcc, 0, 5); // neon cyan flash
-    muzzleFlash.position.set(0, 0, -0.6);
+    const muzzleFlash = new THREE.PointLight(0x00ffcc, 0, 5);
+    muzzleFlash.position.set(0, 0.02, -0.75);
     muzzleFlash.name = "muzzleFlash";
 
+    gunMesh.add(receiver);
     gunMesh.add(barrel);
-    gunMesh.add(bodyMesh);
-    gunMesh.add(scope);
+    gunMesh.add(handguard);
+    gunMesh.add(stock);
+    gunMesh.add(mag);
+    gunMesh.add(grip);
+    gunMesh.add(sightBase);
+    gunMesh.add(sightGlass);
+    gunMesh.add(rail);
+    gunMesh.add(dot);
     gunMesh.add(muzzleFlash);
 
     // Position relative to camera
@@ -512,20 +563,51 @@ function init() {
     hemiLight.groundColor.setHex(groundColor);
     hemiLight.intensity = 0.6;
 
-    // Three.js Ground - darker materials
+    // --- GROUND PROCEDURAL GRID TEXTURE ---
+    const groundCanvas = document.createElement('canvas');
+    groundCanvas.width = 512;
+    groundCanvas.height = 512;
+    const gctx = groundCanvas.getContext('2d');
+
+    // Fill background
+    gctx.fillStyle = '#' + groundColor.toString(16).padStart(6, '0'); // Convert number to hex string correctly
+    gctx.fillRect(0, 0, 512, 512);
+
+    // Draw subtle grid lines
+    gctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; // Slightly visible white grid lines
+    gctx.lineWidth = 2;
+
+    // Draw outer border (grid square)
+    gctx.strokeRect(0, 0, 512, 512);
+    // Draw inner cross for finer detail
+    gctx.beginPath();
+    gctx.moveTo(256, 0); gctx.lineTo(256, 512);
+    gctx.moveTo(0, 256); gctx.lineTo(512, 256);
+    gctx.stroke();
+
+    const groundTex = new THREE.CanvasTexture(groundCanvas);
+    groundTex.wrapS = THREE.RepeatWrapping;
+    groundTex.wrapT = THREE.RepeatWrapping;
+    // Repeat texture so each square matches the GRID_SIZE (5 units)
+    // The ground is groundSize units across.
+    groundTex.repeat.set(groundSize / GRID_SIZE, groundSize / GRID_SIZE);
+
+    // Ensure texture looks sharp (no blurry interpolation)
+    groundTex.magFilter = THREE.NearestFilter;
+    groundTex.minFilter = THREE.NearestMipmapLinearFilter;
+
+    // Three.js Ground - detailed textured material
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
-    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.8, metalness: 0.1 });
+    const groundMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff, // White because texture provides the color
+        map: groundTex,
+        roughness: 0.9,
+        metalness: 0.1
+    });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
-
-    // Add grid helper to the ground to make distance judging easier - darker lines
-    const gridHelper = new THREE.GridHelper(groundSize, groundSize / GRID_SIZE, 0x444444, 0x222222);
-    gridHelper.material.opacity = 0.5;
-    gridHelper.material.transparent = true;
-    gridHelper.position.y = 0.05; // slightly above ground to prevent z-fighting
-    scene.add(gridHelper);
 
     // Cannon-es Ground
     // Use a box instead of a plane so you can fall off 'island' and 'platform'
@@ -696,14 +778,14 @@ function shoot() {
     if (health <= 0) return; // Dead players can't shoot
 
     // Visual recoil & muzzle flash animation
-    gunMesh.position.z = -0.3;
-    gunMesh.rotation.x = Math.PI / 8;
+    gunMesh.position.z = baseGunPosition.z + 0.15; // Kickback
+    gunMesh.rotation.x = Math.PI / 16; // Upward muzzle climb
 
     const flash = gunMesh.getObjectByName("muzzleFlash");
     if (flash) flash.intensity = 15;
 
     setTimeout(() => {
-        gunMesh.position.z = -0.5;
+        gunMesh.position.z = baseGunPosition.z;
         gunMesh.rotation.x = 0;
         if (flash) flash.intensity = 0;
     }, 100);
