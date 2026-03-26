@@ -47,6 +47,33 @@ addPrebuilt('wall', 2.5, 2.5, 0, Math.PI/2, 'island');
 addPrebuilt('wall', -2.5, 2.5, 0, Math.PI/2, 'island');
 addPrebuilt('ramp', 0, 7.5, 0, 0, 'island'); // Ramp on top of floor
 
+// Map: City (Buildings with cover)
+// Building 1 (Left)
+addPrebuilt('floor', -15, 5, -15, 0, 'city');
+addPrebuilt('wall', -15, 2.5, -17.5, 0, 'city');
+addPrebuilt('wall', -12.5, 2.5, -15, Math.PI/2, 'city');
+addPrebuilt('wall', -17.5, 2.5, -15, Math.PI/2, 'city');
+addPrebuilt('ramp', -15, 2.5, -12.5, Math.PI, 'city');
+
+// Building 2 (Right)
+addPrebuilt('floor', 15, 5, 15, 0, 'city');
+addPrebuilt('wall', 15, 2.5, 17.5, 0, 'city');
+addPrebuilt('wall', 12.5, 2.5, 15, Math.PI/2, 'city');
+addPrebuilt('wall', 17.5, 2.5, 15, Math.PI/2, 'city');
+addPrebuilt('ramp', 15, 2.5, 12.5, Math.PI, 'city');
+
+// Scattered Cover (Trees/Bushes using custom structure types or repurposed walls)
+// We'll use special types 'tree' and 'bush' which the client will render specifically.
+addPrebuilt('tree', -5, 0, 10, 0, 'city');
+addPrebuilt('tree', 10, 0, -5, 0, 'city');
+addPrebuilt('tree', 20, 0, 0, 0, 'city');
+addPrebuilt('tree', -20, 0, -20, 0, 'city');
+
+addPrebuilt('bush', -10, 0, 5, 0, 'city');
+addPrebuilt('bush', 5, 0, -10, 0, 'city');
+addPrebuilt('bush', 15, 0, 5, 0, 'city');
+addPrebuilt('bush', -5, 0, -15, 0, 'city');
+
 // Map: Platform (Scattered cover)
 addPrebuilt('wall', 5, 2.5, 5, 0, 'platform');
 addPrebuilt('wall', -5, 2.5, -5, Math.PI/2, 'platform');

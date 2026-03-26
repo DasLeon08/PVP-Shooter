@@ -293,9 +293,9 @@ function init() {
 
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.9);
-    bloomPass.threshold = 1.0; // Lowered threshold so weapon accents glow cleanly without the sky affecting it
-    bloomPass.strength = 1.5; // Boosted glow strength for sci-fi look
-    bloomPass.radius = 0.5;
+    bloomPass.threshold = 1.5; // Only extremely bright things glow (neon/muzzle flash)
+    bloomPass.strength = 0.5; // Reduced glow strength so it doesn't wash out the scene
+    bloomPass.radius = 0.2;
 
     const outputPass = new OutputPass();
 
@@ -305,26 +305,26 @@ function init() {
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3); // Slightly higher ambient to see dark areas
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Significantly higher ambient to see all areas
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.3); // Muted sunlight
-    dirLight.position.set(50, 100, 20);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0); // Stronger light for better visibility
+    dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
 
     // Better shadow resolution
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.top = 150;
-    dirLight.shadow.camera.bottom = -150;
-    dirLight.shadow.camera.left = -150;
-    dirLight.shadow.camera.right = 150;
-    dirLight.shadow.camera.near = 0.1;
+    dirLight.shadow.mapSize.width = 4096;
+    dirLight.shadow.mapSize.height = 4096;
+    dirLight.shadow.camera.top = 200;
+    dirLight.shadow.camera.bottom = -200;
+    dirLight.shadow.camera.left = -200;
+    dirLight.shadow.camera.right = 200;
+    dirLight.shadow.camera.near = 0.5;
     dirLight.shadow.camera.far = 500;
-    dirLight.shadow.bias = -0.001; // Reduce shadow acne
+    dirLight.shadow.bias = -0.0005; // Tweak for stronger light
     scene.add(dirLight);
 
-    const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x4CAF50, 0.3); // Sky color, ground color
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6); // Neutral sky color, darker ground color for contrast
     scene.add(hemiLight);
 
     // --- CANNON-ES SETUP ---
@@ -548,20 +548,26 @@ function init() {
         skyColor = 0x050505; // Pitch black
         fogColor = 0x050505;
         fogDensity = 0.02;
+    } else if (currentMap === 'city') {
+        groundColor = 0x555555; // Concrete
+        groundSize = 300;
+        skyColor = 0x87CEEB; // Bright clear sky
+        fogColor = 0x87CEEB;
+        fogDensity = 0.002;
     }
 
     scene.background = new THREE.Color(skyColor);
     scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
     // Sync lights to match the mood without blinding
-    dirLight.position.set(50, 100, 20);
-    dirLight.intensity = 0.8; // Clear light
+    dirLight.position.set(50, 100, 50);
+    dirLight.intensity = 1.2; // Brighter and clearer light
 
     // Instead of realistic env map, use a simple ambient/hemisphere mix
     scene.environment = null;
     hemiLight.color.setHex(skyColor);
     hemiLight.groundColor.setHex(groundColor);
-    hemiLight.intensity = 0.6;
+    hemiLight.intensity = 0.8;
 
     // --- GROUND PROCEDURAL GRID TEXTURE ---
     const groundCanvas = document.createElement('canvas');
@@ -574,7 +580,7 @@ function init() {
     gctx.fillRect(0, 0, 512, 512);
 
     // Draw subtle grid lines
-    gctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; // Slightly visible white grid lines
+    gctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; // Much more visible white grid lines
     gctx.lineWidth = 2;
 
     // Draw outer border (grid square)
@@ -695,6 +701,9 @@ function spawnBuildingFromServer(data) {
     let shape;
 
     // Copy placement logic but using data properties
+    let materialToUse = buildMaterial;
+    let isEnvironment = false;
+
     if (data.type === 'wall') {
         geo = new THREE.BoxGeometry(GRID_SIZE, GRID_SIZE, 0.5);
         shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, GRID_SIZE/2, 0.25));
@@ -711,9 +720,31 @@ function spawnBuildingFromServer(data) {
         geo = new THREE.ExtrudeGeometry(rampShape2D, extrudeSettings);
         geo.translate(-GRID_SIZE/2, -GRID_SIZE/2, -GRID_SIZE/2);
         shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.5, Math.sqrt(GRID_SIZE*GRID_SIZE * 2)/2));
+    } else if (data.type === 'tree') {
+        // Simple stylized tree
+        geo = new THREE.CylinderGeometry(1, 1, 6, 8); // trunk
+        shape = new CANNON.Cylinder(1, 1, 6, 8);
+        materialToUse = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.9 });
+        isEnvironment = true;
+    } else if (data.type === 'bush') {
+        geo = new THREE.SphereGeometry(2.5, 8, 8);
+        shape = new CANNON.Sphere(2.5);
+        materialToUse = new THREE.MeshStandardMaterial({ color: 0x2E8B57, roughness: 0.8 });
+        isEnvironment = true;
     }
 
-    const mesh = new THREE.Mesh(geo, buildMaterial);
+    const mesh = new THREE.Mesh(geo, materialToUse);
+
+    // If it's a tree, add leaves
+    if (data.type === 'tree') {
+        const leavesGeo = new THREE.ConeGeometry(3, 6, 8);
+        const leavesMat = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.8 });
+        const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+        leaves.position.y = 4; // Top of the trunk
+        leaves.castShadow = true;
+        mesh.add(leaves);
+    }
+
     mesh.position.set(data.x, data.y, data.z);
     mesh.rotation.y = data.rotation;
     mesh.castShadow = true;
@@ -729,6 +760,13 @@ function spawnBuildingFromServer(data) {
     });
     body.position.copy(mesh.position);
     body.quaternion.copy(mesh.quaternion);
+
+    if (data.type === 'tree') {
+        // Cannon.js Cylinder is oriented along Z, three.js is along Y. Rotate it.
+        const q1 = new CANNON.Quaternion();
+        q1.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
+        body.quaternion.copy(q1);
+    }
 
     if (data.type === 'ramp') {
         const q1 = new CANNON.Quaternion();
