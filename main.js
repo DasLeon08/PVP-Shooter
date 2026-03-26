@@ -1,9 +1,13 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 // --- Globals ---
-let camera, scene, renderer;
+let camera, scene, renderer, composer;
 let world;
 let controls;
 let playerBody;
@@ -18,17 +22,24 @@ let currentMode = 'weapon'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
 let gunMesh;
 
-// Create a simple procedural grid texture for buildings
+// Create a simple procedural grid texture for buildings (Sci-Fi Neon)
 const canvas = document.createElement('canvas');
-canvas.width = 128; canvas.height = 128;
+canvas.width = 256; canvas.height = 256;
 const ctx = canvas.getContext('2d');
-ctx.fillStyle = '#614631'; // dark brown
-ctx.fillRect(0, 0, 128, 128);
-ctx.strokeStyle = '#422f20'; // darker outline
-ctx.lineWidth = 4;
-ctx.strokeRect(0, 0, 128, 128);
+// Base dark metal
+ctx.fillStyle = '#111118';
+ctx.fillRect(0, 0, 256, 256);
+// Neon grid lines
+ctx.strokeStyle = '#00ffcc';
+ctx.lineWidth = 2;
+ctx.shadowColor = '#00ffcc';
+ctx.shadowBlur = 10;
+ctx.strokeRect(0, 0, 256, 256);
+
+// Inner cross
 ctx.beginPath();
-ctx.moveTo(0, 64); ctx.lineTo(128, 64); // Horizontal plank
+ctx.moveTo(128, 0); ctx.lineTo(128, 256);
+ctx.moveTo(0, 128); ctx.lineTo(256, 128);
 ctx.stroke();
 
 const gridTexture = new THREE.CanvasTexture(canvas);
@@ -39,12 +50,14 @@ gridTexture.repeat.set(1, 1);
 const buildMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: gridTexture,
-    roughness: 0.9,
-    bumpMap: gridTexture,
-    bumpScale: 0.05
+    metalness: 0.8,
+    roughness: 0.2,
+    emissive: 0x00ffcc,
+    emissiveMap: gridTexture,
+    emissiveIntensity: 0.4
 });
 
-const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.4, depthWrite: false });
+const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.2, depthWrite: false });
 let ghostMesh;
 let ghostRampMesh; // Separate mesh needed for ramp rotation visually
 let builtObjects = [];
@@ -162,27 +175,58 @@ function initNetwork() {
 
             // Create mesh if it doesn't exist
             if (!otherPlayers[id]) {
-                const geo = new THREE.BoxGeometry(1, 2, 1);
-                const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 }); // Enemy color
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.castShadow = true;
+                const playerGroup = new THREE.Group();
 
-                // Keep track of their id for raycasting/shooting
-                mesh.userData = { isPlayer: true, id: id };
+                // Body
+                const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff0044, metalness: 0.6, roughness: 0.2 });
+                const pBodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                pBodyMesh.position.y = 0.6; // Body rests on group origin (feet)
+                pBodyMesh.castShadow = true;
 
-                scene.add(mesh);
-                otherPlayers[id] = { mesh: mesh };
+                // Head
+                const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                const headMat = new THREE.MeshStandardMaterial({ color: 0xff3333, metalness: 0.5, roughness: 0.5 });
+                const headMesh = new THREE.Mesh(headGeo, headMat);
+                headMesh.position.y = 1.45; // Top of body
+                headMesh.castShadow = true;
+
+                // Visor / Eye (Cyberpunk style)
+                const visorGeo = new THREE.BoxGeometry(0.4, 0.1, 0.1);
+                const visorMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 1 });
+                const visorMesh = new THREE.Mesh(visorGeo, visorMat);
+                visorMesh.position.set(0, 1.45, -0.26); // Front of face
+
+                playerGroup.add(pBodyMesh);
+                playerGroup.add(headMesh);
+                playerGroup.add(visorMesh);
+
+                // Invisible hitbox for raycaster
+                const hitboxGeo = new THREE.BoxGeometry(1, 2, 1);
+                const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+                const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+                hitbox.position.y = 1; // Center of full height
+                hitbox.userData = { isPlayer: true, id: id };
+                playerGroup.add(hitbox);
+
+                scene.add(playerGroup);
+
+                otherPlayers[id] = {
+                    group: playerGroup,
+                    hitbox: hitbox // Store hitbox reference for shooting
+                };
             }
 
             // Update position and rotation smoothly
-            otherPlayers[id].mesh.position.set(p.x, p.y - 0.5, p.z); // Adjust y for center of body
-            otherPlayers[id].mesh.rotation.y = p.rotation;
+            // Adjust y so feet are at ground level (player physics body radius is 0.5, position is center)
+            otherPlayers[id].group.position.set(p.x, p.y - 0.5, p.z);
+            otherPlayers[id].group.rotation.y = p.rotation;
         }
 
         // Remove players that disconnected
         for (let id in otherPlayers) {
             if (!players[id] || players[id].map !== currentMap) {
-                scene.remove(otherPlayers[id].mesh);
+                scene.remove(otherPlayers[id].group);
                 delete otherPlayers[id];
             }
         }
@@ -221,7 +265,19 @@ function init() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
     document.body.appendChild(renderer.domElement);
+
+    // --- POST-PROCESSING (BLOOM) ---
+    const renderScene = new RenderPass(scene, camera);
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    bloomPass.threshold = 0.5; // Only bright objects glow
+    bloomPass.strength = 1.0;
+    bloomPass.radius = 0.5;
+
+    composer = new EffectComposer(renderer);
+    composer.addPass(renderScene);
+    composer.addPass(bloomPass);
 
     // --- LIGHTS ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Brighter ambient
@@ -367,14 +423,36 @@ function init() {
     const scope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.15), accentMat);
     scope.position.set(0, 0.1, 0.1);
 
+    // Muzzle Flash light
+    const muzzleFlash = new THREE.PointLight(0x00ffcc, 0, 5); // neon cyan flash
+    muzzleFlash.position.set(0, 0, -0.6);
+    muzzleFlash.name = "muzzleFlash";
+
     gunMesh.add(barrel);
     gunMesh.add(bodyMesh);
     gunMesh.add(scope);
+    gunMesh.add(muzzleFlash);
 
     // Position relative to camera
     gunMesh.position.set(0.3, -0.3, -0.5);
     camera.add(gunMesh);
     scene.add(camera); // Camera needs to be in scene for children to render
+
+    // --- SKY DOME ---
+    const sky = new Sky();
+    sky.scale.setScalar(10000);
+    scene.add(sky);
+
+    const sun = new THREE.Vector3();
+
+    const uniforms = sky.material.uniforms;
+    uniforms['turbidity'].value = 10;
+    uniforms['rayleigh'].value = 2;
+    uniforms['mieCoefficient'].value = 0.005;
+    uniforms['mieDirectionalG'].value = 0.8;
+
+    let elevation = 20; // Default sun height
+    let azimuth = 180;
 
     // --- MAP GENERATION ---
     // Ground setup depends on the selected map
@@ -384,14 +462,23 @@ function init() {
     if (currentMap === 'island') {
         groundColor = 0xE6D0AB; // Sand color
         groundSize = 100; // Smaller area
-        scene.background = new THREE.Color(0x006994); // Sea blue sky
-        scene.fog = new THREE.Fog(0x006994, 20, 100);
+        elevation = 45; // Brighter sun
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
     } else if (currentMap === 'platform') {
         groundColor = 0x333333; // Dark grey
         groundSize = 50; // Very small
-        scene.background = new THREE.Color(0x111111); // Night sky
-        scene.fog = new THREE.Fog(0x111111, 10, 80);
+        elevation = -5; // Sunset / twilight
+        scene.fog = new THREE.Fog(0x222222, 10, 80);
     }
+
+    const phi = THREE.MathUtils.degToRad(90 - elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    sun.setFromSphericalCoords(1, phi, theta);
+
+    sky.material.uniforms['sunPosition'].value.copy(sun);
+
+    // Sync directional light (sun) to sky position
+    dirLight.position.copy(sun).multiplyScalar(50);
 
     // Three.js Ground
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
@@ -545,12 +632,17 @@ function spawnBuildingFromServer(data) {
 function shoot() {
     if (health <= 0) return; // Dead players can't shoot
 
-    // Visual recoil animation
+    // Visual recoil & muzzle flash animation
     gunMesh.position.z = -0.3;
     gunMesh.rotation.x = Math.PI / 8;
+
+    const flash = gunMesh.getObjectByName("muzzleFlash");
+    if (flash) flash.intensity = 15;
+
     setTimeout(() => {
         gunMesh.position.z = -0.5;
         gunMesh.rotation.x = 0;
+        if (flash) flash.intensity = 0;
     }, 100);
 
     const raycaster = new THREE.Raycaster();
@@ -560,7 +652,7 @@ function shoot() {
     // Objects to shoot: built objects AND other players
     const objectsToHit = builtObjects.map(obj => obj.mesh);
     for (let id in otherPlayers) {
-        objectsToHit.push(otherPlayers[id].mesh);
+        objectsToHit.push(otherPlayers[id].hitbox);
     }
 
     const intersects = raycaster.intersectObjects(objectsToHit);
@@ -765,6 +857,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if(composer) composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function animate() {
@@ -825,5 +918,6 @@ function animate() {
     // Offset camera slightly up to represent eye level (sphere radius is 0.5)
     controls.getObject().position.y += 0.5;
 
-    renderer.render(scene, camera);
+    // Use composer instead of renderer for bloom
+    composer.render();
 }
