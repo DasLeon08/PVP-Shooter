@@ -4,6 +4,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 // --- Globals ---
@@ -21,6 +22,17 @@ let health = 100;
 let currentMode = 'weapon'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
 let gunMesh;
+
+// Weapon & Camera Sway State
+const baseGunPosition = new THREE.Vector3(0.3, -0.3, -0.5);
+let gunSwayVelocity = new THREE.Vector2(0, 0);
+let bobTimer = 0;
+
+// Particles
+let particles = [];
+const particleGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+const sparkMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+const debrisMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.8 });
 
 // Create a simple procedural grid texture for buildings (Sci-Fi Neon)
 const canvas = document.createElement('canvas');
@@ -136,6 +148,10 @@ function initNetwork() {
         const index = builtObjects.findIndex(obj => obj.id === objId);
         if (index > -1) {
             const obj = builtObjects[index];
+
+            // Spawn debris particles
+            createParticles(obj.mesh.position, 'debris', 15);
+
             scene.remove(obj.mesh);
             world.removeBody(obj.body);
             obj.mesh.geometry.dispose();
@@ -269,21 +285,30 @@ function init() {
     document.body.appendChild(renderer.domElement);
 
     // --- POST-PROCESSING (BLOOM) ---
+    // Use WebGLRenderTarget with MSAA to prevent jagged edges with post-processing
+    const renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+        samples: 4, // 4x MSAA
+        type: THREE.HalfFloatType // Better HDR precision
+    });
+
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 0.5; // Only bright objects glow
-    bloomPass.strength = 1.0;
+    bloomPass.threshold = 1.2; // Higher threshold so only highly emissive objects glow, not the sky
+    bloomPass.strength = 0.6; // Reduce overall glow strength
     bloomPass.radius = 0.5;
 
-    composer = new EffectComposer(renderer);
+    const outputPass = new OutputPass();
+
+    composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(renderScene);
     composer.addPass(bloomPass);
+    composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Brighter ambient
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Keep ambient low to emphasize shadows and emissive glow
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffeeb1, 1.2); // Warm sunlight
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); // Clean sunlight
     dirLight.position.set(50, 100, 20);
     dirLight.castShadow = true;
 
@@ -316,6 +341,19 @@ function init() {
 
     // --- CONTROLS ---
     controls = new PointerLockControls(camera, document.body);
+
+    // Track mouse movement for weapon sway
+    document.addEventListener('mousemove', (event) => {
+        if (controls.isLocked && currentMode === 'weapon') {
+            // Add mouse delta to sway velocity
+            gunSwayVelocity.x += event.movementX * 0.0005;
+            gunSwayVelocity.y += event.movementY * 0.0005;
+
+            // Clamp
+            gunSwayVelocity.x = THREE.MathUtils.clamp(gunSwayVelocity.x, -0.05, 0.05);
+            gunSwayVelocity.y = THREE.MathUtils.clamp(gunSwayVelocity.y, -0.05, 0.05);
+        }
+    });
 
     const instructions = document.getElementById('instructions');
     instructions.addEventListener('click', function () {
@@ -434,7 +472,7 @@ function init() {
     gunMesh.add(muzzleFlash);
 
     // Position relative to camera
-    gunMesh.position.set(0.3, -0.3, -0.5);
+    gunMesh.position.copy(baseGunPosition);
     camera.add(gunMesh);
     scene.add(camera); // Camera needs to be in scene for children to render
 
@@ -446,10 +484,10 @@ function init() {
     const sun = new THREE.Vector3();
 
     const uniforms = sky.material.uniforms;
-    uniforms['turbidity'].value = 10;
-    uniforms['rayleigh'].value = 2;
-    uniforms['mieCoefficient'].value = 0.005;
-    uniforms['mieDirectionalG'].value = 0.8;
+    uniforms['turbidity'].value = 5;
+    uniforms['rayleigh'].value = 1.5;
+    uniforms['mieCoefficient'].value = 0.002;
+    uniforms['mieDirectionalG'].value = 0.9;
 
     let elevation = 20; // Default sun height
     let azimuth = 180;
@@ -459,16 +497,19 @@ function init() {
     let groundColor = 0x4CAF50; // default green
     let groundSize = 200;
 
+    // Tone down the fog to prevent it from washing out the scene
+    scene.fog = new THREE.FogExp2(0x87CEEB, 0.005);
+
     if (currentMap === 'island') {
         groundColor = 0xE6D0AB; // Sand color
         groundSize = 100; // Smaller area
         elevation = 45; // Brighter sun
-        scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+        scene.fog = new THREE.FogExp2(0x87CEEB, 0.008);
     } else if (currentMap === 'platform') {
         groundColor = 0x333333; // Dark grey
         groundSize = 50; // Very small
         elevation = -5; // Sunset / twilight
-        scene.fog = new THREE.Fog(0x222222, 10, 80);
+        scene.fog = new THREE.FogExp2(0x222222, 0.015);
     }
 
     const phi = THREE.MathUtils.degToRad(90 - elevation);
@@ -480,9 +521,19 @@ function init() {
     // Sync directional light (sun) to sky position
     dirLight.position.copy(sun).multiplyScalar(50);
 
+    // Adjust sky exposure to prevent blowout
+    renderer.toneMappingExposure = 0.8;
+
+    // Generate Environment map from Sky so metals reflect the sky perfectly
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    // Render the scene as an environment map (without objects, just sky and light)
+    let envMap = pmremGenerator.fromScene(scene).texture;
+    scene.environment = envMap; // Apply to all standard materials
+
     // Three.js Ground
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
-    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.8, metalness: 0.1 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.5, metalness: 0.05 });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
@@ -629,6 +680,37 @@ function spawnBuildingFromServer(data) {
     builtObjects.push({ mesh, body, id: data.id });
 }
 
+function createParticles(position, type = 'spark', count = 10) {
+    for (let i = 0; i < count; i++) {
+        const mesh = new THREE.Mesh(
+            particleGeo,
+            type === 'spark' ? sparkMat : debrisMat
+        );
+
+        // Spawn slightly offset from position to prevent clipping
+        mesh.position.copy(position);
+        mesh.position.x += (Math.random() - 0.5) * 0.5;
+        mesh.position.y += (Math.random() - 0.5) * 0.5;
+        mesh.position.z += (Math.random() - 0.5) * 0.5;
+
+        // Random velocity
+        const velocity = new THREE.Vector3(
+            (Math.random() - 0.5) * (type === 'spark' ? 10 : 5),
+            Math.random() * (type === 'spark' ? 5 : 8) + 2,
+            (Math.random() - 0.5) * (type === 'spark' ? 10 : 5)
+        );
+
+        scene.add(mesh);
+
+        particles.push({
+            mesh: mesh,
+            velocity: velocity,
+            life: 1.0, // 1 second lifetime
+            decay: type === 'spark' ? 2.0 : 1.0 // Spark fades faster
+        });
+    }
+}
+
 function shoot() {
     if (health <= 0) return; // Dead players can't shoot
 
@@ -662,7 +744,11 @@ function shoot() {
     setTimeout(() => { document.getElementById('crosshair').style.backgroundColor = 'transparent'; }, 50);
 
     if (intersects.length > 0) {
-        const hitMesh = intersects[0].object;
+        const hit = intersects[0];
+        const hitMesh = hit.object;
+
+        // Spawn sparks at hit point
+        createParticles(hit.point, 'spark', 5);
 
         if (hitMesh.userData) {
             if (hitMesh.userData.isPlayer) {
@@ -864,11 +950,32 @@ function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
+    const delta = (time - prevTime) / 1000;
+
+    // Update Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+
+        // Gravity
+        p.velocity.y -= 9.8 * delta;
+
+        p.mesh.position.addScaledVector(p.velocity, delta);
+        p.mesh.rotation.x += p.velocity.x * delta;
+        p.mesh.rotation.y += p.velocity.y * delta;
+
+        p.life -= p.decay * delta;
+
+        if (p.mesh.material === sparkMat) {
+             p.mesh.scale.setScalar(p.life); // Shrink sparks
+        }
+
+        if (p.life <= 0 || p.mesh.position.y < -5) {
+            scene.remove(p.mesh);
+            particles.splice(i, 1);
+        }
+    }
 
     if (controls.isLocked === true) {
-        // Delta time
-        const delta = (time - prevTime) / 1000;
-
         // Apply movement forces to physics body based on camera direction
         const moveDir = new THREE.Vector3();
         direction.z = Number(moveForward) - Number(moveBackward);
@@ -915,8 +1022,56 @@ function animate() {
 
     // Sync camera to physics body
     controls.getObject().position.copy(playerBody.position);
-    // Offset camera slightly up to represent eye level (sphere radius is 0.5)
-    controls.getObject().position.y += 0.5;
+
+    // View Bobbing & Weapon Sway logic
+    let targetCameraY = 0.5; // Base eye level
+
+    if (controls.isLocked) {
+        // Calculate player speed in XZ plane
+        const currentSpeed = Math.sqrt(playerBody.velocity.x**2 + playerBody.velocity.z**2);
+
+        // Only bob if moving and on the ground
+        if (currentSpeed > 0.1 && canJump) {
+            bobTimer += delta * 10.0;
+            // Bob formula: sine wave based on time * speed
+            targetCameraY = 0.5 + Math.sin(bobTimer) * 0.08;
+
+            // Gun bobs with camera but slightly offset
+            if (currentMode === 'weapon') {
+                gunMesh.position.y = baseGunPosition.y + Math.sin(bobTimer * 2) * 0.02;
+                gunMesh.position.x = baseGunPosition.x + Math.cos(bobTimer) * 0.02;
+            }
+        } else {
+            bobTimer = 0; // Reset when standing still
+            // Slowly return gun to base rest position
+            if (currentMode === 'weapon') {
+                gunMesh.position.y = THREE.MathUtils.lerp(gunMesh.position.y, baseGunPosition.y, delta * 10);
+                gunMesh.position.x = THREE.MathUtils.lerp(gunMesh.position.x, baseGunPosition.x, delta * 10);
+            }
+        }
+
+        // Weapon Sway interpolation
+        if (currentMode === 'weapon') {
+            // Apply sway inverse to mouse movement
+            gunMesh.position.x -= gunSwayVelocity.x;
+            gunMesh.position.y -= gunSwayVelocity.y;
+
+            // Constrain gun position so it doesn't fly off screen
+            const maxX = baseGunPosition.x + 0.1;
+            const minX = baseGunPosition.x - 0.1;
+            const maxY = baseGunPosition.y + 0.1;
+            const minY = baseGunPosition.y - 0.1;
+
+            gunMesh.position.x = THREE.MathUtils.clamp(gunMesh.position.x, minX, maxX);
+            gunMesh.position.y = THREE.MathUtils.clamp(gunMesh.position.y, minY, maxY);
+
+            // Decay sway velocity (spring back to center)
+            gunSwayVelocity.lerp(new THREE.Vector2(0, 0), delta * 10);
+        }
+    }
+
+    // Offset camera slightly up to represent eye level (sphere radius is 0.5 + bobbing)
+    controls.getObject().position.y += targetCameraY;
 
     // Use composer instead of renderer for bloom
     composer.render();
