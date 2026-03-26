@@ -7,10 +7,16 @@ let camera, scene, renderer;
 let world;
 let controls;
 let playerBody;
+let socket;
+let myId;
+let otherPlayers = {}; // To store meshes of other players
+let currentMap = 'classic';
+let health = 100;
 
 // Build System State
 let currentMode = 'weapon'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
+let gunMesh;
 const buildMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.8 }); // Wood-ish
 const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, depthWrite: false });
 let ghostMesh;
@@ -33,8 +39,148 @@ const jumpVelocity = 8.0;
 
 let prevTime = performance.now();
 
-init();
-animate();
+// Start menu logic
+document.getElementById('playBtn').addEventListener('click', () => {
+    document.getElementById('mainMenu').style.display = 'none';
+
+    // Show UI
+    document.getElementById('crosshair').style.display = 'block';
+    document.getElementById('ui').style.display = 'block';
+    document.getElementById('hotbar').style.display = 'flex';
+    document.getElementById('healthBarContainer').style.display = 'block';
+    document.getElementById('instructions').style.display = 'flex';
+
+    currentMap = document.getElementById('mapSelect').value;
+
+    initNetwork();
+    init();
+    animate();
+});
+
+function initNetwork() {
+    socket = io();
+
+    socket.on('initGame', (data) => {
+        myId = data.socketId;
+
+        socket.emit('joinMap', currentMap);
+
+        // Load existing buildings
+        const existingObjects = data.builtObjects;
+        for (let objId in existingObjects) {
+            if (existingObjects[objId].map === currentMap) {
+                 spawnBuildingFromServer(existingObjects[objId]);
+            }
+        }
+    });
+
+    // Handle building events from server
+    socket.on('objectBuilt', (data) => {
+        // If it's ours, we already placed it locally, so we replace the temp one
+        if (data.ownerId === myId) {
+            // Find temp object
+            const tempIndex = builtObjects.findIndex(o => o.isTemp);
+            if (tempIndex > -1) {
+                builtObjects[tempIndex].id = data.id;
+                builtObjects[tempIndex].mesh.userData.id = data.id;
+                builtObjects[tempIndex].isTemp = false;
+            }
+            return;
+        }
+        if (data.map !== currentMap) return;
+
+        spawnBuildingFromServer(data);
+    });
+
+    socket.on('objectDestroyed', (data) => {
+        const objId = data.objId;
+        const index = builtObjects.findIndex(obj => obj.id === objId);
+        if (index > -1) {
+            const obj = builtObjects[index];
+            scene.remove(obj.mesh);
+            world.removeBody(obj.body);
+            obj.mesh.geometry.dispose();
+            builtObjects.splice(index, 1);
+        }
+    });
+
+    socket.on('objectHealthUpdate', (data) => {
+        const objId = data.objId;
+        const obj = builtObjects.find(o => o.id === objId);
+        if (obj) {
+            obj.mesh.userData.health = data.health;
+            // Visual hit feedback
+            const oldColor = obj.mesh.material.color.getHex();
+            obj.mesh.material.color.setHex(0xff0000);
+            setTimeout(() => {
+                if (obj && obj.mesh.material) obj.mesh.material.color.setHex(oldColor);
+            }, 100);
+        }
+    });
+
+    // When we get update of all players
+    socket.on('gameStateUpdate', (players) => {
+        for (let id in players) {
+            let p = players[id];
+
+            // Don't render ourselves or players on different maps
+            if (id === myId) continue;
+
+            if (p.map !== currentMap) {
+                 if (otherPlayers[id]) {
+                     scene.remove(otherPlayers[id].mesh);
+                     delete otherPlayers[id];
+                 }
+                 continue;
+            }
+
+            // Create mesh if it doesn't exist
+            if (!otherPlayers[id]) {
+                const geo = new THREE.BoxGeometry(1, 2, 1);
+                const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 }); // Enemy color
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.castShadow = true;
+
+                // Keep track of their id for raycasting/shooting
+                mesh.userData = { isPlayer: true, id: id };
+
+                scene.add(mesh);
+                otherPlayers[id] = { mesh: mesh };
+            }
+
+            // Update position and rotation smoothly
+            otherPlayers[id].mesh.position.set(p.x, p.y - 0.5, p.z); // Adjust y for center of body
+            otherPlayers[id].mesh.rotation.y = p.rotation;
+        }
+
+        // Remove players that disconnected
+        for (let id in otherPlayers) {
+            if (!players[id] || players[id].map !== currentMap) {
+                scene.remove(otherPlayers[id].mesh);
+                delete otherPlayers[id];
+            }
+        }
+    });
+
+    socket.on('playerHealthUpdate', (data) => {
+        if (data.id === myId) {
+            health = data.health;
+            document.getElementById('healthBar').style.width = Math.max(0, health) + '%';
+        }
+    });
+
+    socket.on('playerRespawn', (data) => {
+        if (data.id === myId) {
+            health = data.health;
+            document.getElementById('healthBar').style.width = '100%';
+
+            // Teleport physics body
+            playerBody.position.set(data.x, data.y, data.z);
+            playerBody.velocity.set(0,0,0);
+        }
+    });
+}
+
 
 function init() {
     // --- THREE.JS SETUP ---
@@ -169,23 +315,61 @@ function init() {
         }
     });
 
-    // --- GROUND ---
+    // --- WEAPON MESH ---
+    const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+    gunMesh = new THREE.Mesh(gunGeo, gunMat);
+    // Position relative to camera
+    gunMesh.position.set(0.3, -0.3, -0.5);
+    camera.add(gunMesh);
+    scene.add(camera); // Camera needs to be in scene for children to render
+
+    // --- MAP GENERATION ---
+    // Ground setup depends on the selected map
+    let groundColor = 0x4CAF50; // default green
+    let groundSize = 200;
+
+    if (currentMap === 'island') {
+        groundColor = 0xE6D0AB; // Sand color
+        groundSize = 100; // Smaller area
+        scene.background = new THREE.Color(0x006994); // Sea blue sky
+        scene.fog = new THREE.Fog(0x006994, 20, 100);
+    } else if (currentMap === 'platform') {
+        groundColor = 0x333333; // Dark grey
+        groundSize = 50; // Very small
+        scene.background = new THREE.Color(0x111111); // Night sky
+        scene.fog = new THREE.Fog(0x111111, 10, 80);
+    }
+
     // Three.js Ground
-    const groundGeo = new THREE.PlaneGeometry(200, 200);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x4CAF50, roughness: 1 });
+    const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
+    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 1 });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
 
     // Cannon-es Ground
+    // Use a box instead of a plane so you can fall off 'island' and 'platform'
+    const groundShape = new CANNON.Box(new CANNON.Vec3(groundSize/2, 1, groundSize/2));
     const groundBody = new CANNON.Body({
         type: CANNON.Body.STATIC,
-        shape: new CANNON.Plane(),
-        material: defaultMaterial
+        shape: groundShape,
+        material: defaultMaterial,
+        position: new CANNON.Vec3(0, -1, 0) // Shift down so top is at y=0
     });
-    groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0); // make it face up
     world.addBody(groundBody);
+
+    // Death plane for falling off
+    world.addEventListener('postStep', () => {
+        if (playerBody.position.y < -20) {
+            // Force respawn
+            health = 0;
+            if (socket) {
+                socket.emit('playerHit', { targetId: myId, damage: 1000 });
+            }
+        }
+    });
 
     // --- GHOST MESH SETUP ---
     // Pre-create geometries to avoid memory leaks
@@ -246,36 +430,99 @@ function init() {
     window.addEventListener('resize', onWindowResize);
 }
 
+function spawnBuildingFromServer(data) {
+    let geo;
+    let shape;
+
+    // Copy placement logic but using data properties
+    if (data.type === 'wall') {
+        geo = new THREE.BoxGeometry(GRID_SIZE, GRID_SIZE, 0.5);
+        shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, GRID_SIZE/2, 0.25));
+    } else if (data.type === 'floor') {
+        geo = new THREE.BoxGeometry(GRID_SIZE, 0.5, GRID_SIZE);
+        shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.25, GRID_SIZE/2));
+    } else if (data.type === 'ramp') {
+        const rampShape2D = new THREE.Shape();
+        rampShape2D.moveTo(0, 0);
+        rampShape2D.lineTo(GRID_SIZE, GRID_SIZE);
+        rampShape2D.lineTo(GRID_SIZE, 0);
+        rampShape2D.lineTo(0, 0);
+        const extrudeSettings = { depth: GRID_SIZE, bevelEnabled: false };
+        geo = new THREE.ExtrudeGeometry(rampShape2D, extrudeSettings);
+        geo.translate(-GRID_SIZE/2, -GRID_SIZE/2, -GRID_SIZE/2);
+        shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.5, Math.sqrt(GRID_SIZE*GRID_SIZE * 2)/2));
+    }
+
+    const mesh = new THREE.Mesh(geo, buildMaterial);
+    mesh.position.set(data.x, data.y, data.z);
+    mesh.rotation.y = data.rotation;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    mesh.userData = { isBuilding: true, health: data.health, id: data.id };
+    scene.add(mesh);
+
+    const body = new CANNON.Body({
+        type: CANNON.Body.STATIC,
+        shape: shape,
+        material: world.defaultMaterial
+    });
+    body.position.copy(mesh.position);
+    body.quaternion.copy(mesh.quaternion);
+
+    if (data.type === 'ramp') {
+        const q1 = new CANNON.Quaternion();
+        q1.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI/4);
+        const q2 = new CANNON.Quaternion();
+        q2.copy(body.quaternion);
+        body.quaternion.copy(q2.mult(q1));
+        body.position.y += GRID_SIZE/2;
+    }
+
+    world.addBody(body);
+    builtObjects.push({ mesh, body, id: data.id });
+}
+
 function shoot() {
+    if (health <= 0) return; // Dead players can't shoot
+
+    // Visual recoil animation
+    gunMesh.position.z = -0.3;
+    gunMesh.rotation.x = Math.PI / 8;
+    setTimeout(() => {
+        gunMesh.position.z = -0.5;
+        gunMesh.rotation.x = 0;
+    }, 100);
+
     const raycaster = new THREE.Raycaster();
     const center = new THREE.Vector2(0, 0); // crosshair center
     raycaster.setFromCamera(center, camera);
 
-    // Objects to shoot: only built objects (and maybe targets later, for now just buildings)
+    // Objects to shoot: built objects AND other players
     const objectsToHit = builtObjects.map(obj => obj.mesh);
+    for (let id in otherPlayers) {
+        objectsToHit.push(otherPlayers[id].mesh);
+    }
+
     const intersects = raycaster.intersectObjects(objectsToHit);
 
-    // Visual recoil/flash simple effect
+    // Visual hitmarker simple effect
     document.getElementById('crosshair').style.backgroundColor = 'red';
     setTimeout(() => { document.getElementById('crosshair').style.backgroundColor = 'white'; }, 50);
 
     if (intersects.length > 0) {
         const hitMesh = intersects[0].object;
 
-        // Apply damage
-        if (hitMesh.userData && hitMesh.userData.isBuilding) {
-            hitMesh.userData.health -= 35; // 3 shots to break (100 -> 65 -> 30 -> -5)
+        if (hitMesh.userData) {
+            if (hitMesh.userData.isPlayer) {
+                // Hit another player
+                socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: 35 });
 
-            // Visual feedback (flash red)
-            const oldColor = hitMesh.material.color.getHex();
-            hitMesh.material.color.setHex(0xff0000);
-            setTimeout(() => {
-                if (hitMesh && hitMesh.material) hitMesh.material.color.setHex(oldColor);
-            }, 100);
-
-            // Destroy if health <= 0
-            if (hitMesh.userData.health <= 0) {
-                destroyBuilding(hitMesh);
+            } else if (hitMesh.userData.isBuilding) {
+                // Tell server we hit a building
+                if (socket && hitMesh.userData.id) {
+                    socket.emit('hitObject', { objId: hitMesh.userData.id });
+                }
             }
         }
     }
@@ -302,6 +549,11 @@ function destroyBuilding(mesh) {
 
 function setMode(mode) {
     currentMode = mode;
+
+    // Toggle weapon visibility
+    if (gunMesh) {
+        gunMesh.visible = (mode === 'weapon');
+    }
 
     // Update UI
     document.getElementById('modeDisplay').innerText = `Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
@@ -340,8 +592,20 @@ function placeBuilding() {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
+    // Generate a temporary ID until server confirms
+    if (socket) {
+        socket.emit('buildObject', {
+            type: currentMode,
+            x: activeGhost.position.x,
+            y: activeGhost.position.y,
+            z: activeGhost.position.z,
+            rotation: activeGhost.rotation.y
+        });
+    }
+
     // Add health data for shooting later
-    mesh.userData = { isBuilding: true, health: 100 };
+    const tempId = 'temp_' + Math.random();
+    mesh.userData = { isBuilding: true, health: 100, id: tempId };
 
     scene.add(mesh);
 
@@ -369,7 +633,7 @@ function placeBuilding() {
 
     world.addBody(body);
 
-    builtObjects.push({ mesh, body });
+    builtObjects.push({ mesh, body, id: tempId, isTemp: true });
 }
 
 function updateGhostPlacement() {
@@ -481,6 +745,16 @@ function animate() {
 
         // Update Building ghost
         updateGhostPlacement();
+
+        // Send my position to server
+        if (socket && playerBody) {
+             socket.emit('playerMove', {
+                 x: playerBody.position.x,
+                 y: playerBody.position.y,
+                 z: playerBody.position.z,
+                 rotation: controls.getObject().rotation.y
+             });
+        }
     }
     prevTime = time;
 

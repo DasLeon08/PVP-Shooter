@@ -1,4 +1,9 @@
-127.0.0.1 - - [26/Mar/2026 07:39:20] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [26/Mar/2026 07:39:20] "GET /main.js HTTP/1.1" 200 -
-127.0.0.1 - - [26/Mar/2026 07:47:25] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [26/Mar/2026 07:47:25] "GET /main.js HTTP/1.1" 200 -
+Server listening on port 3000
+[+] Player connected: e5HRFrJdcf11tzrLAAAB
+[+] Player connected: l84cKDpioahmkP6fAAAD
+[-] Player disconnected: e5HRFrJdcf11tzrLAAAB
+[-] Player disconnected: l84cKDpioahmkP6fAAAD
+[+] Player connected: bs-SW7zvCx0-0zV2AAAF
+[+] Player connected: 8Ii717dQ8CR1ZaKvAAAH
+[-] Player disconnected: bs-SW7zvCx0-0zV2AAAF
+[-] Player disconnected: 8Ii717dQ8CR1ZaKvAAAH
