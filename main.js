@@ -280,8 +280,8 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.3; // Darker baseline exposure to prevent flashbang
+    renderer.toneMapping = THREE.CineonToneMapping; // Switched to Cineon for less aggressive highlights
+    renderer.toneMappingExposure = 0.5; // Adjusted baseline exposure
     document.body.appendChild(renderer.domElement);
 
     // --- POST-PROCESSING (BLOOM) ---
@@ -292,10 +292,10 @@ function init() {
     });
 
     const renderScene = new RenderPass(scene, camera);
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 2.0; // Very high threshold so the sun/sky never glows
-    bloomPass.strength = 1.5; // Stronger glow on neon elements to compensate
-    bloomPass.radius = 0.5;
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.9);
+    bloomPass.threshold = 2.5; // Even higher threshold to absolutely prevent sky blooming
+    bloomPass.strength = 1.2; // Softened glow
+    bloomPass.radius = 0.3;
 
     const outputPass = new OutputPass();
 
@@ -305,10 +305,10 @@ function init() {
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Keep ambient low to emphasize shadows and emissive glow
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3); // Slightly higher ambient to see dark areas
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.4); // Clean sunlight
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.3); // Muted sunlight
     dirLight.position.set(50, 100, 20);
     dirLight.castShadow = true;
 
@@ -476,76 +476,55 @@ function init() {
     camera.add(gunMesh);
     scene.add(camera); // Camera needs to be in scene for children to render
 
-    // --- SKY DOME ---
-    const sky = new Sky();
-    sky.scale.setScalar(10000);
-    scene.add(sky);
-
-    const sun = new THREE.Vector3();
-
-    const uniforms = sky.material.uniforms;
-    // Lower rayleigh so the sky isn't inherently glowing white
-    uniforms['turbidity'].value = 10;
-    uniforms['rayleigh'].value = 0.5; // Lower means less overall sky brightness
-    uniforms['mieCoefficient'].value = 0.005; // Diffuses the sun disc
-    uniforms['mieDirectionalG'].value = 0.7; // Reduces harsh sun glare
-
-    let elevation = 45; // Put the sun higher in the sky so you don't look directly at it easily
-    let azimuth = 180;
-
-    // --- MAP GENERATION ---
-    // Ground setup depends on the selected map
+    // --- SKY & LIGHTING (Stylized / Non-Blinding) ---
+    // Completely removing realistic Sky shader to prevent flashbangs.
+    // Using simple clear colors for a clean competitive look like 1v1.lol.
+    let skyColor = 0x1A202C; // Dark slate blue sky
     let groundColor = 0x4CAF50; // default green
     let groundSize = 200;
-
-    // Tone down the fog to prevent it from washing out the scene
-    scene.fog = new THREE.FogExp2(0x4488aa, 0.002); // Darker blue fog, less dense
+    let fogColor = 0x1A202C;
+    let fogDensity = 0.004;
 
     if (currentMap === 'island') {
-        groundColor = 0xE6D0AB; // Sand color
-        groundSize = 100; // Smaller area
-        elevation = 60; // Brighter sun
-        scene.fog = new THREE.FogExp2(0x4488aa, 0.005);
+        groundColor = 0x8B7355; // Darker sand/dirt
+        groundSize = 150;
+        skyColor = 0x2B4C7E; // Deep blue
+        fogColor = 0x2B4C7E;
+        fogDensity = 0.006;
     } else if (currentMap === 'platform') {
-        groundColor = 0x333333; // Dark grey
-        groundSize = 50; // Very small
-        elevation = -5; // Sunset / twilight
-        scene.fog = new THREE.FogExp2(0x222222, 0.010);
+        groundColor = 0x1a1a1a; // Very dark metal
+        groundSize = 80;
+        skyColor = 0x050505; // Pitch black
+        fogColor = 0x050505;
+        fogDensity = 0.02;
     }
 
-    const phi = THREE.MathUtils.degToRad(90 - elevation);
-    const theta = THREE.MathUtils.degToRad(azimuth);
-    sun.setFromSphericalCoords(1, phi, theta);
+    scene.background = new THREE.Color(skyColor);
+    scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
-    sky.material.uniforms['sunPosition'].value.copy(sun);
+    // Sync lights to match the mood without blinding
+    dirLight.position.set(50, 100, 20);
+    dirLight.intensity = 0.8; // Clear light
 
-    // Sync directional light (sun) to sky position
-    dirLight.position.copy(sun).multiplyScalar(50);
-    dirLight.intensity = 0.4; // Less intense direct sunlight
+    // Instead of realistic env map, use a simple ambient/hemisphere mix
+    scene.environment = null;
+    hemiLight.color.setHex(skyColor);
+    hemiLight.groundColor.setHex(groundColor);
+    hemiLight.intensity = 0.6;
 
-    // Lower exposure to compensate for overall brightness
-    renderer.toneMappingExposure = 0.3; // keep matching baseline
-
-    // Generate Environment map from Sky so metals reflect the sky perfectly
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-    // Render the scene as an environment map (without objects, just sky and light)
-    let envMap = pmremGenerator.fromScene(scene).texture;
-    scene.environment = envMap; // Apply to all standard materials
-
-    // Three.js Ground
+    // Three.js Ground - darker materials
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
-    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.5, metalness: 0.05 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.8, metalness: 0.1 });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
 
-    // Add grid helper to the ground to make distance judging easier
-    const gridHelper = new THREE.GridHelper(groundSize, groundSize / GRID_SIZE, 0xffffff, 0xffffff);
-    gridHelper.material.opacity = 0.2;
+    // Add grid helper to the ground to make distance judging easier - darker lines
+    const gridHelper = new THREE.GridHelper(groundSize, groundSize / GRID_SIZE, 0x444444, 0x222222);
+    gridHelper.material.opacity = 0.5;
     gridHelper.material.transparent = true;
-    gridHelper.position.y = 0.01; // slightly above ground to prevent z-fighting
+    gridHelper.position.y = 0.05; // slightly above ground to prevent z-fighting
     scene.add(gridHelper);
 
     // Cannon-es Ground

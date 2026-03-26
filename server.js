@@ -14,6 +14,44 @@ const players = {};
 const builtObjects = {};
 let objectIdCounter = 0;
 
+// Pre-fill maps with some default structures
+const GRID_SIZE = 5;
+
+function addPrebuilt(type, x, y, z, rotation, mapName) {
+    const objId = `prebuilt_${objectIdCounter++}`;
+    builtObjects[objId] = {
+        id: objId,
+        type: type,
+        x: x, y: y, z: z,
+        rotation: rotation,
+        health: 500, // Pre-built objects have more health
+        ownerId: 'server',
+        map: mapName
+    };
+}
+
+// Map: Classic (1vs1 Arena)
+// Two simple bases facing each other
+// Base 1
+addPrebuilt('floor', 0, 5, -20, 0, 'classic');
+addPrebuilt('ramp', 0, 2.5, -15, 0, 'classic');
+addPrebuilt('wall', 0, 2.5, -20, 0, 'classic');
+// Base 2
+addPrebuilt('floor', 0, 5, 20, 0, 'classic');
+addPrebuilt('ramp', 0, 2.5, 15, Math.PI, 'classic');
+addPrebuilt('wall', 0, 2.5, 20, 0, 'classic');
+
+// Map: Island (A central tower structure)
+addPrebuilt('floor', 0, 5, 0, 0, 'island');
+addPrebuilt('wall', 2.5, 2.5, 0, Math.PI/2, 'island');
+addPrebuilt('wall', -2.5, 2.5, 0, Math.PI/2, 'island');
+addPrebuilt('ramp', 0, 7.5, 0, 0, 'island'); // Ramp on top of floor
+
+// Map: Platform (Scattered cover)
+addPrebuilt('wall', 5, 2.5, 5, 0, 'platform');
+addPrebuilt('wall', -5, 2.5, -5, Math.PI/2, 'platform');
+addPrebuilt('ramp', 10, 2.5, 0, Math.PI/2, 'platform');
+
 io.on('connection', (socket) => {
     console.log(`[+] Player connected: ${socket.id}`);
 
