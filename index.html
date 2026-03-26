@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1vs1.LOL Clone</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB; /* Sky blue */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+
+        #gameCanvas {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            background-color: white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            mix-blend-mode: difference;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.8);
+            pointer-events: none;
+        }
+
+        #instructions {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #hotbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .slot {
+            width: 50px;
+            height: 50px;
+            background-color: rgba(0,0,0,0.5);
+            border: 2px solid #555;
+            border-radius: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        .slot.active {
+            border-color: #00ff00;
+            background-color: rgba(0, 255, 0, 0.2);
+        }
+
+        .slot-label {
+            position: absolute;
+            top: -20px;
+            font-size: 12px;
+            color: #ccc;
+        }
+    </style>
+    <!-- Import maps polyfill -->
+    <script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="crosshair"></div>
+
+    <div id="ui">
+        <h2>FPS Build Simulator</h2>
+        <div id="modeDisplay">Mode: Pickaxe (1)</div>
+    </div>
+
+    <div id="hotbar">
+        <div class="slot active" id="slot-1">
+            <span class="slot-label">Weapon</span>
+            1
+        </div>
+        <div class="slot" id="slot-2">
+            <span class="slot-label">Wall</span>
+            2
+        </div>
+        <div class="slot" id="slot-3">
+            <span class="slot-label">Floor</span>
+            3
+        </div>
+        <div class="slot" id="slot-4">
+            <span class="slot-label">Ramp</span>
+            4
+        </div>
+    </div>
+
+    <div id="instructions">
+        <h1 style="font-size: 48px; margin-bottom: 10px;">Click to Play</h1>
+        <p style="font-size: 20px;">
+            WASD = Move | SPACE = Jump<br>
+            Left Click = Shoot / Build<br>
+            Right Click = Aim (Weapon) / Rotate (Build)<br>
+            1 = Weapon<br>
+            2 = Wall | 3 = Floor | 4 = Ramp<br>
+            ESC = Pause
+        </p>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
