@@ -66,7 +66,7 @@ const buildMaterial = new THREE.MeshStandardMaterial({
     roughness: 0.2,
     emissive: 0x00ffcc,
     emissiveMap: gridTexture,
-    emissiveIntensity: 0.4
+    emissiveIntensity: 1.5 // Increased to pierce the higher bloom threshold
 });
 
 const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.2, depthWrite: false });
@@ -209,7 +209,7 @@ function initNetwork() {
 
                 // Visor / Eye (Cyberpunk style)
                 const visorGeo = new THREE.BoxGeometry(0.4, 0.1, 0.1);
-                const visorMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 1 });
+                const visorMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.0 });
                 const visorMesh = new THREE.Mesh(visorGeo, visorMat);
                 visorMesh.position.set(0, 1.45, -0.26); // Front of face
 
@@ -281,7 +281,7 @@ function init() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 0.3; // Darker baseline exposure to prevent flashbang
     document.body.appendChild(renderer.domElement);
 
     // --- POST-PROCESSING (BLOOM) ---
@@ -293,8 +293,8 @@ function init() {
 
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 1.2; // Higher threshold so only highly emissive objects glow, not the sky
-    bloomPass.strength = 0.6; // Reduce overall glow strength
+    bloomPass.threshold = 2.0; // Very high threshold so the sun/sky never glows
+    bloomPass.strength = 1.5; // Stronger glow on neon elements to compensate
     bloomPass.radius = 0.5;
 
     const outputPass = new OutputPass();
@@ -308,7 +308,7 @@ function init() {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); // Keep ambient low to emphasize shadows and emissive glow
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); // Clean sunlight
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.4); // Clean sunlight
     dirLight.position.set(50, 100, 20);
     dirLight.castShadow = true;
 
@@ -450,7 +450,7 @@ function init() {
     const gunBarrelGeo = new THREE.BoxGeometry(0.08, 0.08, 0.6);
     const gunBodyGeo = new THREE.BoxGeometry(0.1, 0.15, 0.4);
     const gunMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
-    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.5 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.0 });
 
     const barrel = new THREE.Mesh(gunBarrelGeo, gunMat);
     barrel.position.z = -0.2;
@@ -484,12 +484,13 @@ function init() {
     const sun = new THREE.Vector3();
 
     const uniforms = sky.material.uniforms;
-    uniforms['turbidity'].value = 5;
-    uniforms['rayleigh'].value = 1.5;
-    uniforms['mieCoefficient'].value = 0.002;
-    uniforms['mieDirectionalG'].value = 0.9;
+    // Lower rayleigh so the sky isn't inherently glowing white
+    uniforms['turbidity'].value = 10;
+    uniforms['rayleigh'].value = 0.5; // Lower means less overall sky brightness
+    uniforms['mieCoefficient'].value = 0.005; // Diffuses the sun disc
+    uniforms['mieDirectionalG'].value = 0.7; // Reduces harsh sun glare
 
-    let elevation = 20; // Default sun height
+    let elevation = 45; // Put the sun higher in the sky so you don't look directly at it easily
     let azimuth = 180;
 
     // --- MAP GENERATION ---
@@ -498,18 +499,18 @@ function init() {
     let groundSize = 200;
 
     // Tone down the fog to prevent it from washing out the scene
-    scene.fog = new THREE.FogExp2(0x87CEEB, 0.005);
+    scene.fog = new THREE.FogExp2(0x4488aa, 0.002); // Darker blue fog, less dense
 
     if (currentMap === 'island') {
         groundColor = 0xE6D0AB; // Sand color
         groundSize = 100; // Smaller area
-        elevation = 45; // Brighter sun
-        scene.fog = new THREE.FogExp2(0x87CEEB, 0.008);
+        elevation = 60; // Brighter sun
+        scene.fog = new THREE.FogExp2(0x4488aa, 0.005);
     } else if (currentMap === 'platform') {
         groundColor = 0x333333; // Dark grey
         groundSize = 50; // Very small
         elevation = -5; // Sunset / twilight
-        scene.fog = new THREE.FogExp2(0x222222, 0.015);
+        scene.fog = new THREE.FogExp2(0x222222, 0.010);
     }
 
     const phi = THREE.MathUtils.degToRad(90 - elevation);
@@ -520,9 +521,10 @@ function init() {
 
     // Sync directional light (sun) to sky position
     dirLight.position.copy(sun).multiplyScalar(50);
+    dirLight.intensity = 0.4; // Less intense direct sunlight
 
-    // Adjust sky exposure to prevent blowout
-    renderer.toneMappingExposure = 0.8;
+    // Lower exposure to compensate for overall brightness
+    renderer.toneMappingExposure = 0.3; // keep matching baseline
 
     // Generate Environment map from Sky so metals reflect the sky perfectly
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
