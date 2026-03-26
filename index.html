@@ -5,12 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>1vs1.LOL Clone</title>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Teko:wght@400;600;700&display=swap');
+
         body {
             margin: 0;
             overflow: hidden;
-            background-color: #87CEEB; /* Sky blue */
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e; /* Fallback dark */
+            font-family: 'Teko', sans-serif;
             user-select: none;
+            color: white;
         }
 
         #gameCanvas {
@@ -19,131 +22,131 @@
             display: block;
         }
 
+        /* Modern Crosshair */
         #crosshair {
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 10px;
-            height: 10px;
-            background-color: white;
-            border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
             mix-blend-mode: difference;
+            width: 20px;
+            height: 20px;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background-color: #00ffcc;
+            box-shadow: 0 0 5px #00ffcc;
+        }
+        #crosshair::before { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+        #crosshair::after { top: 0; left: 50%; width: 2px; height: 100%; transform: translateX(-50%); }
+        #crosshair .dot {
+            position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+            background: red; border-radius: 50%; transform: translate(-50%, -50%);
         }
 
         #ui {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            text-shadow: 2px 2px 2px rgba(0,0,0,0.8);
+            top: 30px;
+            left: 30px;
             pointer-events: none;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px 25px;
+            border-radius: 10px;
+            border-left: 4px solid #00ffcc;
+            backdrop-filter: blur(5px);
         }
 
+        #ui h2 { margin: 0 0 5px 0; font-size: 28px; letter-spacing: 1px; font-weight: 600; text-transform: uppercase; color: #fff;}
+        #modeDisplay { font-size: 20px; color: #00ffcc; font-weight: 400;}
+
+        /* Glassmorphism Main Menu */
         #mainMenu {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: #333;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: white;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(135deg, rgba(20,20,30,0.9) 0%, rgba(10,10,20,0.9) 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
             z-index: 20;
+            backdrop-filter: blur(10px);
         }
 
-        .menu-btn {
-            padding: 15px 30px;
-            font-size: 24px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            cursor: pointer;
-            margin: 20px;
-            border-radius: 5px;
+        .menu-container {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 50px 80px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            text-align: center;
         }
 
-        .menu-btn:hover { background-color: #45a049; }
+        .menu-title { font-size: 80px; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;
+            background: linear-gradient(45deg, #00ffcc, #00b3ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent;}
+        .menu-subtitle { font-size: 24px; color: #aaa; margin-top: -10px; margin-bottom: 40px; font-weight: 400;}
 
         .map-select {
-            padding: 10px;
-            font-size: 18px;
-            margin-bottom: 20px;
+            padding: 12px 20px; font-size: 22px; margin-bottom: 30px; font-family: 'Teko', sans-serif;
+            background: rgba(0,0,0,0.5); color: white; border: 1px solid #555; border-radius: 8px;
+            outline: none; transition: border 0.3s; width: 100%; box-sizing: border-box;
         }
+        .map-select:focus { border-color: #00ffcc; }
 
+        .menu-btn {
+            padding: 15px 40px; font-size: 28px; font-family: 'Teko', sans-serif; font-weight: 600;
+            background: linear-gradient(45deg, #00ffcc, #00b3ff); color: #000;
+            border: none; cursor: pointer; border-radius: 8px; text-transform: uppercase;
+            transition: transform 0.2s, box-shadow 0.2s; width: 100%;
+        }
+        .menu-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 255, 204, 0.4); }
+
+        /* Sleek Health Bar */
         #healthBarContainer {
-            position: absolute;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 300px;
-            height: 20px;
-            background-color: rgba(0,0,0,0.5);
-            border: 2px solid #333;
-            border-radius: 5px;
+            position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%);
+            width: 400px; height: 25px; background-color: rgba(0,0,0,0.6);
+            border: 2px solid rgba(255,255,255,0.1); border-radius: 12px; overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
         }
 
         #healthBar {
-            width: 100%;
-            height: 100%;
-            background-color: #ff3333;
-            transition: width 0.2s;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, #ff0044 0%, #ff5555 100%);
+            transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: inset 0 2px 5px rgba(255,255,255,0.3);
+        }
+
+        #healthText {
+            position: absolute; width: 100%; text-align: center; top: -1px; font-size: 22px;
+            font-weight: 600; pointer-events: none; text-shadow: 1px 1px 2px #000; letter-spacing: 1px;
         }
 
         #instructions {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: rgba(0,0,0,0.5);
-            display: none; /* hidden until game starts */
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            text-align: center;
-            z-index: 10;
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(0,0,0,0.7); display: none; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center; z-index: 10;
+            backdrop-filter: blur(5px);
         }
 
+        /* Modern Hotbar */
         #hotbar {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 10px;
-            pointer-events: none;
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 15px; pointer-events: none;
         }
 
         .slot {
-            width: 50px;
-            height: 50px;
-            background-color: rgba(0,0,0,0.5);
-            border: 2px solid #555;
-            border-radius: 5px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            font-weight: bold;
-            font-size: 20px;
+            width: 60px; height: 60px; background: rgba(0,0,0,0.6);
+            border: 2px solid rgba(255,255,255,0.1); border-radius: 10px;
+            display: flex; justify-content: center; align-items: center; flex-direction: column;
+            font-weight: 600; font-size: 28px; transition: all 0.2s;
+            box-shadow: 0 5px 10px rgba(0,0,0,0.3); position: relative;
         }
 
         .slot.active {
-            border-color: #00ff00;
-            background-color: rgba(0, 255, 0, 0.2);
+            border-color: #00ffcc; background: rgba(0, 255, 204, 0.15);
+            transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 255, 204, 0.2);
         }
 
         .slot-label {
-            position: absolute;
-            top: -20px;
-            font-size: 12px;
-            color: #ccc;
+            position: absolute; top: -25px; font-size: 16px; color: #aaa; text-transform: uppercase; letter-spacing: 1px;
         }
     </style>
     <!-- Import maps polyfill -->
@@ -164,22 +167,24 @@
 </head>
 <body>
     <div id="mainMenu">
-        <h1 style="font-size: 64px; margin-bottom: 10px;">FPS Build Simulator</h1>
-        <h2 style="color: #ccc;">Multiplayer Edition</h2>
+        <div class="menu-container">
+            <h1 class="menu-title">FPS Build Simulator</h1>
+            <h2 class="menu-subtitle">Multiplayer Edition</h2>
 
-        <div style="margin-top: 40px; text-align: center;">
-            <label for="mapSelect" style="font-size: 24px; display: block; margin-bottom: 10px;">Select Map:</label>
-            <select id="mapSelect" class="map-select">
-                <option value="classic">Classic Box</option>
-                <option value="island">Island Arena</option>
-                <option value="platform">Sky Platform</option>
-            </select>
+            <div style="margin-top: 30px; text-align: left;">
+                <label for="mapSelect" style="font-size: 22px; display: block; margin-bottom: 5px; color: #ccc;">Select Arena</label>
+                <select id="mapSelect" class="map-select">
+                    <option value="classic">Classic Grid</option>
+                    <option value="island">Island Arena</option>
+                    <option value="platform">Sky Platform</option>
+                </select>
+            </div>
+
+            <button id="playBtn" class="menu-btn">Drop In</button>
         </div>
-
-        <button id="playBtn" class="menu-btn">Play Multiplayer</button>
     </div>
 
-    <div id="crosshair" style="display: none;"></div>
+    <div id="crosshair" style="display: none;"><div class="dot"></div></div>
 
     <div id="ui" style="display: none;">
         <h2>FPS Build Simulator</h2>
@@ -188,7 +193,7 @@
 
     <div id="healthBarContainer" style="display: none;">
         <div id="healthBar"></div>
-        <div style="position: absolute; width: 100%; text-align: center; top: 0; font-size: 14px; font-weight: bold; pointer-events: none; text-shadow: 1px 1px 0 #000;">100 HP</div>
+        <div id="healthText">100 HP</div>
     </div>
 
     <div id="hotbar" style="display: none;">

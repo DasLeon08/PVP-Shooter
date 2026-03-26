@@ -17,8 +17,34 @@ let health = 100;
 let currentMode = 'weapon'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
 let gunMesh;
-const buildMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.8 }); // Wood-ish
-const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, depthWrite: false });
+
+// Create a simple procedural grid texture for buildings
+const canvas = document.createElement('canvas');
+canvas.width = 128; canvas.height = 128;
+const ctx = canvas.getContext('2d');
+ctx.fillStyle = '#614631'; // dark brown
+ctx.fillRect(0, 0, 128, 128);
+ctx.strokeStyle = '#422f20'; // darker outline
+ctx.lineWidth = 4;
+ctx.strokeRect(0, 0, 128, 128);
+ctx.beginPath();
+ctx.moveTo(0, 64); ctx.lineTo(128, 64); // Horizontal plank
+ctx.stroke();
+
+const gridTexture = new THREE.CanvasTexture(canvas);
+gridTexture.wrapS = THREE.RepeatWrapping;
+gridTexture.wrapT = THREE.RepeatWrapping;
+gridTexture.repeat.set(1, 1);
+
+const buildMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: gridTexture,
+    roughness: 0.9,
+    bumpMap: gridTexture,
+    bumpScale: 0.05
+});
+
+const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.4, depthWrite: false });
 let ghostMesh;
 let ghostRampMesh; // Separate mesh needed for ramp rotation visually
 let builtObjects = [];
@@ -190,26 +216,35 @@ function init() {
 
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
     document.body.appendChild(renderer.domElement);
 
     // --- LIGHTS ---
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.6); // Soft white light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Brighter ambient
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(100, 200, 50);
+    const dirLight = new THREE.DirectionalLight(0xffeeb1, 1.2); // Warm sunlight
+    dirLight.position.set(50, 100, 20);
     dirLight.castShadow = true;
-    dirLight.shadow.camera.top = 100;
-    dirLight.shadow.camera.bottom = -100;
-    dirLight.shadow.camera.left = -100;
-    dirLight.shadow.camera.right = 100;
+
+    // Better shadow resolution
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.top = 150;
+    dirLight.shadow.camera.bottom = -150;
+    dirLight.shadow.camera.left = -150;
+    dirLight.shadow.camera.right = 150;
     dirLight.shadow.camera.near = 0.1;
     dirLight.shadow.camera.far = 500;
+    dirLight.shadow.bias = -0.001; // Reduce shadow acne
     scene.add(dirLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x4CAF50, 0.3); // Sky color, ground color
+    scene.add(hemiLight);
 
     // --- CANNON-ES SETUP ---
     world = new CANNON.World({
@@ -316,9 +351,26 @@ function init() {
     });
 
     // --- WEAPON MESH ---
-    const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.5);
-    const gunMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    gunMesh = new THREE.Mesh(gunGeo, gunMat);
+    gunMesh = new THREE.Group();
+
+    const gunBarrelGeo = new THREE.BoxGeometry(0.08, 0.08, 0.6);
+    const gunBodyGeo = new THREE.BoxGeometry(0.1, 0.15, 0.4);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 0.5 });
+
+    const barrel = new THREE.Mesh(gunBarrelGeo, gunMat);
+    barrel.position.z = -0.2;
+
+    const bodyMesh = new THREE.Mesh(gunBodyGeo, gunMat);
+    bodyMesh.position.z = 0.1;
+
+    const scope = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.15), accentMat);
+    scope.position.set(0, 0.1, 0.1);
+
+    gunMesh.add(barrel);
+    gunMesh.add(bodyMesh);
+    gunMesh.add(scope);
+
     // Position relative to camera
     gunMesh.position.set(0.3, -0.3, -0.5);
     camera.add(gunMesh);
@@ -343,11 +395,18 @@ function init() {
 
     // Three.js Ground
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
-    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 1 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.8, metalness: 0.1 });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
+
+    // Add grid helper to the ground to make distance judging easier
+    const gridHelper = new THREE.GridHelper(groundSize, groundSize / GRID_SIZE, 0xffffff, 0xffffff);
+    gridHelper.material.opacity = 0.2;
+    gridHelper.material.transparent = true;
+    gridHelper.position.y = 0.01; // slightly above ground to prevent z-fighting
+    scene.add(gridHelper);
 
     // Cannon-es Ground
     // Use a box instead of a plane so you can fall off 'island' and 'platform'
@@ -508,7 +567,7 @@ function shoot() {
 
     // Visual hitmarker simple effect
     document.getElementById('crosshair').style.backgroundColor = 'red';
-    setTimeout(() => { document.getElementById('crosshair').style.backgroundColor = 'white'; }, 50);
+    setTimeout(() => { document.getElementById('crosshair').style.backgroundColor = 'transparent'; }, 50);
 
     if (intersects.length > 0) {
         const hitMesh = intersects[0].object;
@@ -517,7 +576,6 @@ function shoot() {
             if (hitMesh.userData.isPlayer) {
                 // Hit another player
                 socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: 35 });
-
             } else if (hitMesh.userData.isBuilding) {
                 // Tell server we hit a building
                 if (socket && hitMesh.userData.id) {
