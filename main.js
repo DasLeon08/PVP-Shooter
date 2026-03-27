@@ -5,6 +5,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 // --- Globals ---
@@ -69,7 +70,7 @@ const buildMaterial = new THREE.MeshStandardMaterial({
     emissiveIntensity: 1.5 // Increased to pierce the higher bloom threshold
 });
 
-const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.2, depthWrite: false });
+const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.4, depthWrite: false, wireframe: true });
 let ghostMesh;
 let ghostRampMesh; // Separate mesh needed for ramp rotation visually
 let builtObjects = [];
@@ -91,7 +92,10 @@ const jumpVelocity = 8.0;
 let prevTime = performance.now();
 
 // Start menu logic
+let isSpectator = false;
+
 document.getElementById('playBtn').addEventListener('click', () => {
+    isSpectator = false;
     document.getElementById('mainMenu').style.display = 'none';
 
     // Show UI
@@ -108,13 +112,50 @@ document.getElementById('playBtn').addEventListener('click', () => {
     animate();
 });
 
+document.getElementById('spectateBtn').addEventListener('click', () => {
+    isSpectator = true;
+    document.getElementById('mainMenu').style.display = 'none';
+
+    // Hide combat UI for spectators
+    document.getElementById('crosshair').style.display = 'none';
+    document.getElementById('ui').style.display = 'none';
+    document.getElementById('hotbar').style.display = 'none';
+    document.getElementById('healthBarContainer').style.display = 'none';
+    document.getElementById('instructions').style.display = 'flex'; // Still need instructions to start
+
+    currentMap = document.getElementById('mapSelect').value;
+
+    initNetwork();
+    init();
+    animate();
+});
+
 function initNetwork() {
     socket = io();
+
+    socket.on('leaderboardUpdate', (players) => {
+        const tbody = document.getElementById('leaderboardBody');
+        tbody.innerHTML = '';
+
+        // Sort by kills
+        const sorted = players.sort((a, b) => b.kills - a.kills);
+
+        sorted.forEach(p => {
+            if (p.isSpectator) return;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="padding: 5px;">${p.id === myId ? 'You' : p.id.substring(0,6)}</td>
+                <td style="padding: 5px; color: #00ffcc;">${p.kills || 0}</td>
+                <td style="padding: 5px; color: #ff5555;">${p.deaths || 0}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    });
 
     socket.on('initGame', (data) => {
         myId = data.socketId;
 
-        socket.emit('joinMap', currentMap);
+        socket.emit('joinMap', { map: currentMap, isSpectator: isSpectator });
 
         // Load existing buildings
         const existingObjects = data.builtObjects;
@@ -280,8 +321,8 @@ function init() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.CineonToneMapping; // Switched to Cineon for less aggressive highlights
-    renderer.toneMappingExposure = 0.5; // Adjusted baseline exposure
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; // ACES is brighter and cleaner for cartoonish looks
+    renderer.toneMappingExposure = 1.0; // Bump exposure back to 1.0 for a more vibrant, "blown-out" 1v1.lol look
     document.body.appendChild(renderer.domElement);
 
     // --- POST-PROCESSING (BLOOM) ---
@@ -292,23 +333,32 @@ function init() {
     });
 
     const renderScene = new RenderPass(scene, camera);
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.5, 0.9);
-    bloomPass.threshold = 1.5; // Only extremely bright things glow (neon/muzzle flash)
-    bloomPass.strength = 0.5; // Reduced glow strength so it doesn't wash out the scene
+
+    // SSAO Pass (Ambient Occlusion for shadows in corners, like 1v1.lol)
+    const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
+    ssaoPass.kernelRadius = 12; // Decrease radius for sharper shadows in corners
+    ssaoPass.minDistance = 0.002; // Tighter min distance
+    ssaoPass.maxDistance = 0.05; // Shorter max distance (prevents muddying flat surfaces)
+
+    // Slight bloom to make neon pop without washing out the bright sky
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.3, 0.9);
+    bloomPass.threshold = 1.0; // Adjust for better glowing highlights
+    bloomPass.strength = 0.3; // Less aggressive glow
     bloomPass.radius = 0.2;
 
     const outputPass = new OutputPass();
 
     composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(renderScene);
+    composer.addPass(ssaoPass);
     composer.addPass(bloomPass);
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Significantly higher ambient to see all areas
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Higher ambient for a flatter, low-poly cartoon look
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0); // Stronger light for better visibility
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0); // Extremely bright sun
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
 
@@ -324,7 +374,7 @@ function init() {
     dirLight.shadow.bias = -0.0005; // Tweak for stronger light
     scene.add(dirLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6); // Neutral sky color, darker ground color for contrast
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4); // Subtle bounce light
     scene.add(hemiLight);
 
     // --- CANNON-ES SETUP ---
@@ -421,6 +471,12 @@ function init() {
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
 
+    document.addEventListener('keyup', (event) => {
+        if (event.code === 'Tab') {
+            document.getElementById('leaderboard').style.display = 'none';
+        }
+    });
+
     // --- PLAYER PHYSICS ---
     const radius = 0.5;
     const playerShape = new CANNON.Sphere(radius);
@@ -434,93 +490,92 @@ function init() {
     playerBody.linearDamping = 0.9; // Add some friction to movement
     world.addBody(playerBody);
 
-    // Jump logic detection (simple grounded check)
-    world.addEventListener('postStep', () => {
-        // Simple check if player is falling or on ground
-        if (Math.abs(playerBody.velocity.y) < 0.1) {
-            canJump = true;
+    // Jump logic detection
+    canJump = false;
+    let contactNormal = new CANNON.Vec3(); // Normal in the contact, pointing *out* of whatever the player touched
+    let upAxis = new CANNON.Vec3(0, 1, 0);
+    playerBody.addEventListener("collide", function(e){
+        let contact = e.contact;
+
+        // contact.bi and contact.bj are the colliding bodies, and contact.ni is the collision normal.
+        // We do not yet know which one is which! Let's check.
+        if(contact.bi.id == playerBody.id) {
+            contact.ni.negate(contactNormal);
         } else {
-            canJump = false;
+            contactNormal.copy(contact.ni); // bi is something else. Keep the normal as it is
+        }
+
+        // If contactNormal.dot(upAxis) is between 0 and 1, we know that the contact normal is somewhat in the up direction.
+        if(contactNormal.dot(upAxis) > 0.5) { // Use a "non-strict" equality here (e.g., > 0.5) to allow jumping on ramps.
+            canJump = true;
         }
     });
 
-    // --- WEAPON MESH (Detailed Rifle) ---
+    // We defer resetting canJump to allow it to be true during jump key processing.
+    // However, if we don't have active collisions in the preStep, we should assume we're not grounded.
+    world.addEventListener('preStep', () => {
+        canJump = false;
+    });
+
+    // --- WEAPONS SYSTEM ---
     gunMesh = new THREE.Group();
 
     // Materials
     const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.8 });
     const greyPolymer = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
-    const neonMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.5 });
 
-    // Main Body/Receiver
-    const receiverGeo = new THREE.BoxGeometry(0.12, 0.18, 0.45);
-    const receiver = new THREE.Mesh(receiverGeo, darkMetal);
-    receiver.position.set(0, 0, 0.05);
+    // Create AR Mesh
+    const arMesh = new THREE.Group();
+    arMesh.name = "ar";
+    const arNeonMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, emissive: 0x00ffcc, emissiveIntensity: 2.5 });
+    const arReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.45), darkMetal); arReceiver.position.set(0, 0, 0.05);
+    const arBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 16), darkMetal); arBarrel.rotation.x = Math.PI / 2; arBarrel.position.set(0, 0.02, -0.4);
+    const arHandguard = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.35), greyPolymer); arHandguard.position.set(0, 0, -0.3);
+    const arStock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.15, 0.3), greyPolymer); arStock.position.set(0, -0.05, 0.4);
+    const arMag = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.1), greyPolymer); arMag.rotation.x = -Math.PI / 16; arMag.position.set(0, -0.15, 0);
+    const arGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.08), greyPolymer); arGrip.rotation.x = Math.PI / 16; arGrip.position.set(0, -0.12, 0.15);
+    const arRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.3), arNeonMat); arRail.position.set(0, 0.06, -0.3);
+    const arSightGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.02), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5})); arSightGlass.position.set(0, 0.15, 0.05);
+    arMesh.add(arReceiver, arBarrel, arHandguard, arStock, arMag, arGrip, arRail, arSightGlass);
 
-    // Barrel
-    const barrelGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.6, 16);
-    const barrel = new THREE.Mesh(barrelGeo, darkMetal);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.02, -0.4);
+    // Create SMG Mesh (Compact, faster)
+    const smgMesh = new THREE.Group();
+    smgMesh.name = "smg";
+    const smgNeonMat = new THREE.MeshStandardMaterial({ color: 0xff00cc, emissive: 0xff00cc, emissiveIntensity: 2.5 });
+    const smgReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.3), darkMetal); smgReceiver.position.set(0, 0, 0);
+    const smgBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.25, 16), darkMetal); smgBarrel.rotation.x = Math.PI / 2; smgBarrel.position.set(0, 0, -0.25);
+    const smgStock = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1, 0.2), darkMetal); smgStock.position.set(0, 0, 0.25);
+    const smgMag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.25, 0.08), greyPolymer); smgMag.position.set(0, -0.15, -0.05); // Straight mag
+    const smgGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.06), greyPolymer); smgGrip.rotation.x = Math.PI / 16; smgGrip.position.set(0, -0.1, 0.1);
+    const smgRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.2), smgNeonMat); smgRail.position.set(0, 0.05, -0.2);
+    smgMesh.add(smgReceiver, smgBarrel, smgStock, smgMag, smgGrip, smgRail);
 
-    // Handguard
-    const handguardGeo = new THREE.BoxGeometry(0.08, 0.12, 0.35);
-    const handguard = new THREE.Mesh(handguardGeo, greyPolymer);
-    handguard.position.set(0, 0, -0.3);
-
-    // Stock
-    const stockGeo = new THREE.BoxGeometry(0.06, 0.15, 0.3);
-    const stock = new THREE.Mesh(stockGeo, greyPolymer);
-    stock.position.set(0, -0.05, 0.4);
-
-    // Magazine (Angled)
-    const magGeo = new THREE.BoxGeometry(0.06, 0.2, 0.1);
-    const mag = new THREE.Mesh(magGeo, greyPolymer);
-    mag.rotation.x = -Math.PI / 16;
-    mag.position.set(0, -0.15, 0);
-
-    // Pistol Grip
-    const gripGeo = new THREE.BoxGeometry(0.05, 0.15, 0.08);
-    const grip = new THREE.Mesh(gripGeo, greyPolymer);
-    grip.rotation.x = Math.PI / 16;
-    grip.position.set(0, -0.12, 0.15);
-
-    // Holographic Sight (Base & Glass)
-    const sightBaseGeo = new THREE.BoxGeometry(0.08, 0.05, 0.12);
-    const sightBase = new THREE.Mesh(sightBaseGeo, darkMetal);
-    sightBase.position.set(0, 0.11, 0.05);
-
-    const sightGlassGeo = new THREE.BoxGeometry(0.06, 0.08, 0.02);
-    const sightGlass = new THREE.Mesh(sightGlassGeo, new THREE.MeshStandardMaterial({
-        color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5
-    }));
-    sightGlass.position.set(0, 0.15, 0.05);
-
-    // Neon Accents
-    const railGeo = new THREE.BoxGeometry(0.02, 0.02, 0.3);
-    const rail = new THREE.Mesh(railGeo, neonMat);
-    rail.position.set(0, 0.06, -0.3);
-
-    const dotGeo = new THREE.SphereGeometry(0.01, 8, 8);
-    const dot = new THREE.Mesh(dotGeo, neonMat);
-    dot.position.set(0, 0.15, 0.05); // Centered in sight glass
+    // Create Shotgun Mesh (Wide barrel, pump action)
+    const sgMesh = new THREE.Group();
+    sgMesh.name = "shotgun";
+    const sgNeonMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 2.5 });
+    const sgReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.4), darkMetal); sgReceiver.position.set(0, 0, 0.05);
+    const sgBarrel1 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 16), darkMetal); sgBarrel1.rotation.x = Math.PI / 2; sgBarrel1.position.set(-0.02, 0.02, -0.35);
+    const sgBarrel2 = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 16), darkMetal); sgBarrel2.rotation.x = Math.PI / 2; sgBarrel2.position.set(0.02, 0.02, -0.35); // Double barrel look
+    const sgStock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.25), greyPolymer); sgStock.position.set(0, -0.05, 0.35);
+    const sgGrip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.15, 0.1), greyPolymer); sgGrip.rotation.x = Math.PI / 16; sgGrip.position.set(0, -0.1, 0.15);
+    const sgRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.1), sgNeonMat); sgRail.position.set(0, 0.05, 0);
+    sgMesh.add(sgReceiver, sgBarrel1, sgBarrel2, sgStock, sgGrip, sgRail);
 
     // Muzzle Flash light
-    const muzzleFlash = new THREE.PointLight(0x00ffcc, 0, 5);
+    const muzzleFlash = new THREE.PointLight(0xffffff, 0, 5);
     muzzleFlash.position.set(0, 0.02, -0.75);
     muzzleFlash.name = "muzzleFlash";
 
-    gunMesh.add(receiver);
-    gunMesh.add(barrel);
-    gunMesh.add(handguard);
-    gunMesh.add(stock);
-    gunMesh.add(mag);
-    gunMesh.add(grip);
-    gunMesh.add(sightBase);
-    gunMesh.add(sightGlass);
-    gunMesh.add(rail);
-    gunMesh.add(dot);
+    gunMesh.add(arMesh);
+    gunMesh.add(smgMesh);
+    gunMesh.add(sgMesh);
     gunMesh.add(muzzleFlash);
+
+    // Default to AR
+    arMesh.visible = true;
+    smgMesh.visible = false;
+    sgMesh.visible = false;
 
     // Position relative to camera
     gunMesh.position.copy(baseGunPosition);
@@ -528,46 +583,45 @@ function init() {
     scene.add(camera); // Camera needs to be in scene for children to render
 
     // --- SKY & LIGHTING (Stylized / Non-Blinding) ---
-    // Completely removing realistic Sky shader to prevent flashbangs.
-    // Using simple clear colors for a clean competitive look like 1v1.lol.
-    let skyColor = 0x1A202C; // Dark slate blue sky
-    let groundColor = 0x4CAF50; // default green
+    // Pushing the colors closer to 1v1.lol's hyper-vibrant aesthetic
+    let skyColor = 0x66CCFF; // Very bright cyan-sky blue
+    let groundColor = 0x4CE659; // Vivid lime/sea green
     let groundSize = 200;
-    let fogColor = 0x1A202C;
-    let fogDensity = 0.004;
+    let fogColor = 0x66CCFF;
+    let fogDensity = 0.0005; // Extremely minimal fog for long draw distances
 
     if (currentMap === 'island') {
-        groundColor = 0x8B7355; // Darker sand/dirt
+        groundColor = 0xFFD27F; // Warm vibrant sand
         groundSize = 150;
-        skyColor = 0x2B4C7E; // Deep blue
-        fogColor = 0x2B4C7E;
-        fogDensity = 0.006;
+        skyColor = 0x33BBFF; // Strong sky blue
+        fogColor = 0x33BBFF;
+        fogDensity = 0.0005;
     } else if (currentMap === 'platform') {
-        groundColor = 0x1a1a1a; // Very dark metal
+        groundColor = 0x404040; // Slate gray
         groundSize = 80;
-        skyColor = 0x050505; // Pitch black
-        fogColor = 0x050505;
-        fogDensity = 0.02;
-    } else if (currentMap === 'city') {
-        groundColor = 0x555555; // Concrete
-        groundSize = 300;
-        skyColor = 0x87CEEB; // Bright clear sky
-        fogColor = 0x87CEEB;
+        skyColor = 0x0A0A2A; // Deep night sky
+        fogColor = 0x0A0A2A;
         fogDensity = 0.002;
+    } else if (currentMap === 'city') {
+        groundColor = 0x8C8C8C; // Light concrete
+        groundSize = 300;
+        skyColor = 0x99D6FF; // Pale morning blue
+        fogColor = 0x99D6FF;
+        fogDensity = 0.0005;
     }
 
     scene.background = new THREE.Color(skyColor);
     scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
-    // Sync lights to match the mood without blinding
-    dirLight.position.set(50, 100, 50);
-    dirLight.intensity = 1.2; // Brighter and clearer light
+    // Sync lights to match the mood
+    dirLight.position.set(80, 150, 60);
+    dirLight.intensity = 2.5; // Even brighter sun for washed out highlights like flat shaded games
 
     // Instead of realistic env map, use a simple ambient/hemisphere mix
     scene.environment = null;
     hemiLight.color.setHex(skyColor);
     hemiLight.groundColor.setHex(groundColor);
-    hemiLight.intensity = 0.8;
+    hemiLight.intensity = 0.9;
 
     // --- GROUND PROCEDURAL GRID TEXTURE ---
     const groundCanvas = document.createElement('canvas');
@@ -607,8 +661,9 @@ function init() {
     const groundMat = new THREE.MeshStandardMaterial({
         color: 0xffffff, // White because texture provides the color
         map: groundTex,
-        roughness: 0.9,
-        metalness: 0.1
+        roughness: 1.0,
+        metalness: 0.0, // Non-metallic for a flatter, matte look
+        flatShading: true // Low-poly flat look
     });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;
@@ -665,28 +720,41 @@ function init() {
 
     // --- INPUT HANDLING (Modes & Build) ---
     document.addEventListener('keydown', (event) => {
-        if (!controls.isLocked) return;
+        if (!controls.isLocked && event.code !== 'Tab') return;
+
+        if (event.code === 'Tab') {
+            event.preventDefault();
+            document.getElementById('leaderboard').style.display = 'block';
+            return;
+        }
 
         // Mode switching
         switch(event.code) {
-            case 'Digit1': setMode('weapon'); break;
-            case 'Digit2': setMode('wall'); break;
-            case 'Digit3': setMode('floor'); break;
-            case 'Digit4': setMode('ramp'); break;
+            case 'Digit1': setMode('ar'); break;
+            case 'Digit2': setMode('smg'); break;
+            case 'Digit3': setMode('shotgun'); break;
+            case 'Digit4': setMode('wall'); break;
+            case 'Digit5': setMode('floor'); break;
+            case 'Digit6': setMode('ramp'); break;
+            case 'Digit7': setMode('heal'); break;
         }
     });
 
     document.addEventListener('mousedown', (event) => {
         if (!controls.isLocked) return;
 
+        const isWeapon = currentMode === 'ar' || currentMode === 'smg' || currentMode === 'shotgun';
+
         if (event.button === 0) { // Left click
-            if (currentMode !== 'weapon' && (ghostMesh.visible || ghostRampMesh.visible)) {
+            if (currentMode === 'heal') {
+                useHeal();
+            } else if (!isWeapon && (ghostMesh.visible || ghostRampMesh.visible)) {
                 placeBuilding();
-            } else if (currentMode === 'weapon') {
+            } else if (isWeapon) {
                 shoot();
             }
         } else if (event.button === 2) { // Right click
-            if (currentMode !== 'weapon') {
+            if (!isWeapon) {
                 placementRotation = (placementRotation + 1) % 4;
             }
         }
@@ -812,12 +880,43 @@ function createParticles(position, type = 'spark', count = 10) {
     }
 }
 
+function useHeal() {
+    if (isSpectator) return;
+    if (health <= 0 || health >= 100) return;
+
+    // Optimistically update health
+    health = Math.min(100, health + 25);
+    document.getElementById('healthBar').style.width = Math.max(0, health) + '%';
+    document.getElementById('healthText').innerText = `${health} HP`;
+
+    // Let server know
+    socket.emit('useHeal', { amount: 25 });
+
+    // Switch back to weapon immediately after healing
+    setMode('ar');
+}
+
 function shoot() {
+    if (isSpectator) return;
     if (health <= 0) return; // Dead players can't shoot
 
+    let damage = 35; // default AR
+    let kickback = 0.15;
+    let muzzleClimb = Math.PI / 16;
+
+    if (currentMode === 'smg') {
+        damage = 15;
+        kickback = 0.08;
+        muzzleClimb = Math.PI / 24;
+    } else if (currentMode === 'shotgun') {
+        damage = 80;
+        kickback = 0.3;
+        muzzleClimb = Math.PI / 8;
+    }
+
     // Visual recoil & muzzle flash animation
-    gunMesh.position.z = baseGunPosition.z + 0.15; // Kickback
-    gunMesh.rotation.x = Math.PI / 16; // Upward muzzle climb
+    gunMesh.position.z = baseGunPosition.z + kickback; // Kickback
+    gunMesh.rotation.x = muzzleClimb; // Upward muzzle climb
 
     const flash = gunMesh.getObjectByName("muzzleFlash");
     if (flash) flash.intensity = 15;
@@ -854,7 +953,7 @@ function shoot() {
         if (hitMesh.userData) {
             if (hitMesh.userData.isPlayer) {
                 // Hit another player
-                socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: 35 });
+                socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: damage });
             } else if (hitMesh.userData.isBuilding) {
                 // Tell server we hit a building
                 if (socket && hitMesh.userData.id) {
@@ -888,18 +987,30 @@ function setMode(mode) {
     currentMode = mode;
 
     // Toggle weapon visibility
+    const isWeapon = mode === 'ar' || mode === 'smg' || mode === 'shotgun';
     if (gunMesh) {
-        gunMesh.visible = (mode === 'weapon');
+        gunMesh.visible = isWeapon;
+        if (isWeapon) {
+            gunMesh.children.forEach(c => {
+                if (c.name === 'ar' || c.name === 'smg' || c.name === 'shotgun') {
+                    c.visible = (c.name === mode);
+                }
+            });
+        }
     }
 
     // Update UI
-    document.getElementById('modeDisplay').innerText = `Mode: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+    let displayMode = mode === 'ar' ? 'Assault Rifle' : mode === 'smg' ? 'SMG' : mode === 'shotgun' ? 'Shotgun' : mode;
+    document.getElementById('modeDisplay').innerText = `Mode: ${displayMode.charAt(0).toUpperCase() + displayMode.slice(1)}`;
     document.querySelectorAll('.slot').forEach(el => el.classList.remove('active'));
 
-    if(mode === 'weapon') document.getElementById('slot-1').classList.add('active');
-    if(mode === 'wall') document.getElementById('slot-2').classList.add('active');
-    if(mode === 'floor') document.getElementById('slot-3').classList.add('active');
-    if(mode === 'ramp') document.getElementById('slot-4').classList.add('active');
+    if(mode === 'ar') document.getElementById('slot-1').classList.add('active');
+    if(mode === 'smg') document.getElementById('slot-2').classList.add('active');
+    if(mode === 'shotgun') document.getElementById('slot-3').classList.add('active');
+    if(mode === 'wall') document.getElementById('slot-4').classList.add('active');
+    if(mode === 'floor') document.getElementById('slot-5').classList.add('active');
+    if(mode === 'ramp') document.getElementById('slot-6').classList.add('active');
+    if(mode === 'heal') document.getElementById('slot-7').classList.add('active');
 
     // Reset rotation on mode switch
     placementRotation = 0;

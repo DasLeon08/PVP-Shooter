@@ -1,0 +1,13 @@
+
+> app@1.0.0 start
+> node server.js
+
+Server listening on port 3000
+[+] Player connected: wYeSbrQN1XID6VDmAAAB
+[-] Player disconnected: wYeSbrQN1XID6VDmAAAB
+[+] Player connected: 3msYl29G2a577eXkAAAD
+[-] Player disconnected: 3msYl29G2a577eXkAAAD
+[+] Player connected: -4jjRLwAX0eSKtiPAAAG
+[-] Player disconnected: -4jjRLwAX0eSKtiPAAAG
+[+] Player connected: vHZqOxwFwMgORz9FAAAJ
+[-] Player disconnected: vHZqOxwFwMgORz9FAAAJ

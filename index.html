@@ -205,7 +205,10 @@
                 </select>
             </div>
 
-            <button id="playBtn" class="menu-btn">Drop In</button>
+            <div style="display: flex; gap: 10px; width: 100%;">
+                <button id="playBtn" class="menu-btn">Drop In</button>
+                <button id="spectateBtn" class="menu-btn" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid #555;">Spectate</button>
+            </div>
 
             <script>
                 // Map card selection logic
@@ -237,31 +240,59 @@
 
     <div id="hotbar" style="display: none;">
         <div class="slot active" id="slot-1">
-            <span class="slot-label">Weapon</span>
+            <span class="slot-label">AR</span>
             1
         </div>
         <div class="slot" id="slot-2">
-            <span class="slot-label">Wall</span>
+            <span class="slot-label">SMG</span>
             2
         </div>
         <div class="slot" id="slot-3">
-            <span class="slot-label">Floor</span>
+            <span class="slot-label">Shot</span>
             3
         </div>
         <div class="slot" id="slot-4">
-            <span class="slot-label">Ramp</span>
+            <span class="slot-label">Wall</span>
             4
         </div>
+        <div class="slot" id="slot-5">
+            <span class="slot-label">Floor</span>
+            5
+        </div>
+        <div class="slot" id="slot-6">
+            <span class="slot-label">Ramp</span>
+            6
+        </div>
+        <div class="slot" id="slot-7">
+            <span class="slot-label">Heal</span>
+            7
+        </div>
+    </div>
+
+    <div id="leaderboard" style="display: none; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 2px solid #00ffcc; border-radius: 10px; padding: 20px; z-index: 50; min-width: 300px; color: white; font-family: sans-serif;">
+        <h2 style="text-align: center; margin-top: 0; color: #00ffcc;">Leaderboard</h2>
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="border-bottom: 1px solid #555;">
+                    <th style="padding: 5px;">Player</th>
+                    <th style="padding: 5px;">Kills</th>
+                    <th style="padding: 5px;">Deaths</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboardBody">
+            </tbody>
+        </table>
     </div>
 
     <div id="instructions">
         <h1 style="font-size: 48px; margin-bottom: 10px;">Click to Play</h1>
         <p style="font-size: 20px;">
             WASD = Move | SPACE = Jump<br>
-            Left Click = Shoot / Build<br>
+            Left Click = Shoot / Build / Heal<br>
             Right Click = Aim (Weapon) / Rotate (Build)<br>
-            1 = Weapon<br>
-            2 = Wall | 3 = Floor | 4 = Ramp<br>
+            1/2/3 = Weapons<br>
+            4/5/6 = Build<br>
+            7 = Heal<br>
             ESC = Pause
         </p>
     </div>

@@ -88,7 +88,10 @@ io.on('connection', (socket) => {
         x: 0, y: 5, z: 0, // default spawn
         rotation: 0,
         health: 100,
-        map: 'classic' // default map
+        map: 'classic', // default map
+        kills: 0,
+        deaths: 0,
+        isSpectator: false
     };
 
     // Send current game state to the new player
@@ -102,10 +105,16 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerJoined', players[socket.id]);
 
     // Update player map selection
-    socket.on('joinMap', (mapName) => {
+    socket.on('joinMap', (data) => {
+        const mapName = typeof data === 'string' ? data : data.map;
+        const isSpectator = typeof data === 'object' ? data.isSpectator : false;
+
         players[socket.id].map = mapName;
+        players[socket.id].isSpectator = isSpectator;
         // Broadcast that they joined a specific map
-        io.emit('playerMapUpdate', { id: socket.id, map: mapName });
+        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator });
+
+        io.emit('leaderboardUpdate', Object.values(players));
     });
 
     // Handle Movement
@@ -123,12 +132,15 @@ io.on('connection', (socket) => {
         const targetId = data.targetId;
         const damage = data.damage || 35; // Weapon damage
 
-        if (players[targetId]) {
+        if (players[targetId] && !players[targetId].isSpectator && players[socket.id] && !players[socket.id].isSpectator) {
             players[targetId].health -= damage;
             console.log(`[*] ${socket.id} hit ${targetId} (-${damage} HP). Remaining: ${players[targetId].health}`);
 
             if (players[targetId].health <= 0) {
                 // Handle Death
+                players[targetId].deaths += 1;
+                if (players[socket.id]) players[socket.id].kills += 1;
+
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
                 players[targetId].health = 100; // Auto-respawn health
 
@@ -138,6 +150,7 @@ io.on('connection', (socket) => {
                 players[targetId].z = 0;
 
                 io.emit('playerRespawn', players[targetId]);
+                io.emit('leaderboardUpdate', Object.values(players));
             } else {
                 // Broadcast health update
                 io.emit('playerHealthUpdate', { id: targetId, health: players[targetId].health });
@@ -166,11 +179,20 @@ io.on('connection', (socket) => {
         io.emit('objectBuilt', newObj);
     });
 
+    // Handle Healing
+    socket.on('useHeal', (data) => {
+        if (players[socket.id] && !players[socket.id].isSpectator) {
+            players[socket.id].health = Math.min(100, players[socket.id].health + (data.amount || 25));
+            io.emit('playerHealthUpdate', { id: socket.id, health: players[socket.id].health });
+        }
+    });
+
     // Handle Destroying Buildings
     socket.on('hitObject', (data) => {
         const objId = data.objId;
+        const damage = data.damage || 35; // Use weapon damage or default
         if (builtObjects[objId]) {
-            builtObjects[objId].health -= 35;
+            builtObjects[objId].health -= damage;
 
             if (builtObjects[objId].health <= 0) {
                 delete builtObjects[objId];
