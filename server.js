@@ -79,6 +79,25 @@ addPrebuilt('wall', 5, 2.5, 5, 0, 'platform');
 addPrebuilt('wall', -5, 2.5, -5, Math.PI/2, 'platform');
 addPrebuilt('ramp', 10, 2.5, 0, Math.PI/2, 'platform');
 
+// Map: Desert (Ruins)
+addPrebuilt('wall', -10, 2.5, 10, Math.PI/4, 'desert');
+addPrebuilt('wall', -10, 7.5, 10, Math.PI/4, 'desert');
+addPrebuilt('wall', 10, 2.5, -10, -Math.PI/4, 'desert');
+addPrebuilt('ramp', -5, 2.5, 15, Math.PI, 'desert');
+addPrebuilt('floor', -10, 10, 10, 0, 'desert');
+
+// Map: Space (Floating platforms)
+addPrebuilt('floor', 0, 15, 0, 0, 'space');
+addPrebuilt('ramp', 0, 12.5, 5, 0, 'space');
+addPrebuilt('floor', 15, 25, 15, 0, 'space');
+addPrebuilt('ramp', 10, 22.5, 15, Math.PI/2, 'space');
+
+// Map: Lava (Safe platforms over lava)
+addPrebuilt('floor', 0, 5, 0, 0, 'lava');
+addPrebuilt('floor', 10, 10, 10, 0, 'lava');
+addPrebuilt('ramp', 5, 7.5, 10, Math.PI/2, 'lava');
+addPrebuilt('wall', 0, 7.5, -2.5, 0, 'lava');
+
 io.on('connection', (socket) => {
     console.log(`[+] Player connected: ${socket.id}`);
 

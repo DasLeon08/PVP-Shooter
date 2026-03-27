@@ -1,0 +1,43 @@
+import time
+from playwright.sync_api import sync_playwright
+
+def run(playwright):
+    browser = playwright.chromium.launch(headless=True, args=['--use-gl=egl'])
+    page = browser.new_page(viewport={"width": 1920, "height": 1080})
+
+    # Listen for console logs
+    page.on("console", lambda msg: print(f"Browser console: {msg.text}"))
+
+    print("Navigating to game...")
+    page.goto('http://localhost:3000')
+    time.sleep(2)
+
+    print("Selecting Lava Map...")
+    page.click('.map-card[data-map="lava"]')
+    time.sleep(1)
+
+    print("Clicking play button...")
+    page.click('#playBtn')
+    time.sleep(3) # Wait to drop in
+
+    print("Moving around to look at Lava...")
+    page.mouse.move(960, 540)
+    page.mouse.down()
+    page.mouse.move(1060, 740) # Look down slightly to see floor
+    page.mouse.up()
+    time.sleep(1)
+
+    print("Building a ramp...")
+    page.keyboard.press('6') # Ramp
+    time.sleep(0.5)
+    page.mouse.click(960, 540)
+    time.sleep(1)
+
+    print("Taking screenshot...")
+    page.screenshot(path='gameplay_screenshot_lava.png')
+    print("Screenshot saved to gameplay_screenshot_lava.png")
+
+    browser.close()
+
+with sync_playwright() as playwright:
+    run(playwright)

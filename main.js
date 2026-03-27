@@ -621,66 +621,144 @@ function init() {
         skyColor = 0x99D6FF; // Pale morning blue
         fogColor = 0x99D6FF;
         fogDensity = 0.0005;
+    } else if (currentMap === 'desert') {
+        groundColor = 0xE6C280; // Desert dune sand
+        groundSize = 250;
+        skyColor = 0x55CCFF; // Hot desert sky
+        fogColor = 0xE6C280; // Dust storm fog
+        fogDensity = 0.001;
+    } else if (currentMap === 'space') {
+        groundColor = 0x111122; // Dark space metal
+        groundSize = 150;
+        skyColor = 0x000005; // Pitch black space
+        fogColor = 0x000005;
+        fogDensity = 0.003;
+    } else if (currentMap === 'lava') {
+        groundColor = 0xCC2200; // Glowing lava red
+        groundSize = 150;
+        skyColor = 0x220000; // Dark red hellish sky
+        fogColor = 0x440000;
+        fogDensity = 0.002;
     }
 
     scene.background = new THREE.Color(skyColor);
     scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
+    // If space, add stars
+    if (currentMap === 'space') {
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 2000;
+        const starPos = new Float32Array(starCount * 3);
+        for(let i=0; i<starCount*3; i++) {
+            starPos[i] = (Math.random() - 0.5) * 500;
+        }
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+        const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 0.7});
+        const stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+    }
+
     // Sync lights to match the mood
     dirLight.position.set(80, 150, 60);
-    dirLight.intensity = 2.5; // Even brighter sun for washed out highlights like flat shaded games
+    dirLight.intensity = (currentMap === 'space' || currentMap === 'lava') ? 1.0 : 2.5;
+    if (currentMap === 'lava') dirLight.color.setHex(0xffaa55);
 
     // Instead of realistic env map, use a simple ambient/hemisphere mix
     scene.environment = null;
     hemiLight.color.setHex(skyColor);
     hemiLight.groundColor.setHex(groundColor);
-    hemiLight.intensity = 0.9;
+    hemiLight.intensity = (currentMap === 'space' || currentMap === 'lava') ? 0.3 : 0.9;
 
-    // --- GROUND PROCEDURAL GRID TEXTURE ---
+    // --- PROCEDURAL GROUND TEXTURES VIA CANVAS ---
     const groundCanvas = document.createElement('canvas');
     groundCanvas.width = 512;
     groundCanvas.height = 512;
     const gctx = groundCanvas.getContext('2d');
 
-    // Fill background
-    gctx.fillStyle = '#' + groundColor.toString(16).padStart(6, '0'); // Convert number to hex string correctly
+    // Fill base background
+    gctx.fillStyle = '#' + groundColor.toString(16).padStart(6, '0');
     gctx.fillRect(0, 0, 512, 512);
 
-    // Draw subtle grid lines
-    gctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'; // Much more visible white grid lines
-    gctx.lineWidth = 2;
+    // Procedural Detail based on map type
+    if (currentMap === 'classic') {
+        // Bright neon grass grid
+        gctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        gctx.lineWidth = 2;
+        gctx.strokeRect(0, 0, 512, 512);
+        gctx.beginPath(); gctx.moveTo(256, 0); gctx.lineTo(256, 512); gctx.moveTo(0, 256); gctx.lineTo(512, 256); gctx.stroke();
+        gctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        gctx.beginPath(); gctx.arc(256, 256, 12, 0, Math.PI*2); gctx.fill();
 
-    // Draw outer border (grid square)
-    gctx.strokeRect(0, 0, 512, 512);
-    // Draw inner cross for finer detail
-    gctx.beginPath();
-    gctx.moveTo(256, 0); gctx.lineTo(256, 512);
-    gctx.moveTo(0, 256); gctx.lineTo(512, 256);
-    gctx.stroke();
-
-    // Add a glowing central dot
-    gctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-    gctx.beginPath(); gctx.arc(256, 256, 12, 0, Math.PI*2); gctx.fill();
+        // Add subtle grass blades
+        for(let i=0; i<300; i++) {
+            gctx.fillStyle = Math.random() > 0.5 ? '#3CB343' : '#57E864';
+            gctx.fillRect(Math.random()*512, Math.random()*512, 4, 15 + Math.random()*15);
+        }
+    } else if (currentMap === 'island' || currentMap === 'desert') {
+        // Sand texture with speckles and wavy dunes
+        for(let i=0; i<1000; i++) {
+            gctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)';
+            gctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
+        }
+        // Dune lines
+        gctx.strokeStyle = 'rgba(0,0,0,0.03)';
+        gctx.lineWidth = 20;
+        for(let y=0; y<512; y+=80) {
+            gctx.beginPath(); gctx.moveTo(0, y); gctx.bezierCurveTo(128, y+30, 384, y-30, 512, y); gctx.stroke();
+        }
+    } else if (currentMap === 'city' || currentMap === 'platform') {
+        // Concrete/Asphalt texture
+        for(let i=0; i<2000; i++) {
+            gctx.fillStyle = `rgba(0,0,0,${Math.random()*0.1})`;
+            gctx.fillRect(Math.random()*512, Math.random()*512, 3, 3);
+        }
+        // Grid lines for scale
+        gctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        gctx.lineWidth = 4;
+        gctx.strokeRect(0, 0, 512, 512);
+    } else if (currentMap === 'space') {
+        // Metallic sci-fi panels
+        gctx.fillStyle = '#1a1a2e'; gctx.fillRect(0,0,512,512);
+        gctx.strokeStyle = '#00ffcc'; gctx.lineWidth = 4;
+        gctx.strokeRect(10, 10, 492, 492);
+        gctx.fillStyle = 'rgba(0,255,204,0.1)';
+        gctx.fillRect(10, 10, 492, 492);
+        // Sci-fi vents
+        gctx.fillStyle = '#0f0f1a';
+        for(let i=40; i<480; i+=60) { gctx.fillRect(i, 40, 20, 100); }
+    } else if (currentMap === 'lava') {
+        // Lava crust and glowing cracks
+        gctx.fillStyle = '#CC2200'; gctx.fillRect(0,0,512,512); // Base bright lava
+        // Dark crust
+        for(let i=0; i<50; i++) {
+            gctx.fillStyle = '#220000';
+            gctx.beginPath(); gctx.arc(Math.random()*512, Math.random()*512, 20+Math.random()*50, 0, Math.PI*2); gctx.fill();
+        }
+        // Glowing cracks
+        gctx.strokeStyle = '#FFaa00'; gctx.lineWidth = 3; gctx.shadowBlur = 10; gctx.shadowColor = '#FFaa00';
+        for(let i=0; i<5; i++) {
+            gctx.beginPath(); gctx.moveTo(Math.random()*512, 0); gctx.lineTo(Math.random()*512, 256); gctx.lineTo(Math.random()*512, 512); gctx.stroke();
+        }
+        gctx.shadowBlur = 0; // reset
+    }
 
     const groundTex = new THREE.CanvasTexture(groundCanvas);
     groundTex.wrapS = THREE.RepeatWrapping;
     groundTex.wrapT = THREE.RepeatWrapping;
-    // Repeat texture so each square matches the GRID_SIZE (5 units)
-    // The ground is groundSize units across.
     groundTex.repeat.set(groundSize / GRID_SIZE, groundSize / GRID_SIZE);
-
-    // Ensure texture looks sharp (no blurry interpolation)
     groundTex.magFilter = THREE.NearestFilter;
     groundTex.minFilter = THREE.NearestMipmapLinearFilter;
 
-    // Three.js Ground - detailed textured material
+    // Adjust material properties based on map
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
     const groundMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff, // White because texture provides the color
+        color: 0xffffff,
         map: groundTex,
-        roughness: 1.0,
-        metalness: 0.0, // Non-metallic for a flatter, matte look
-        flatShading: true // Low-poly flat look
+        roughness: (currentMap === 'lava' || currentMap === 'space') ? 0.4 : 1.0,
+        metalness: currentMap === 'space' ? 0.8 : 0.0,
+        flatShading: true,
+        emissive: currentMap === 'lava' ? 0x661100 : 0x000000,
+        emissiveMap: currentMap === 'lava' ? groundTex : null
     });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
     groundMesh.rotation.x = -Math.PI / 2;

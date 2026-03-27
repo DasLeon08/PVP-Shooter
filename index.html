@@ -198,22 +198,34 @@
 
             <div style="margin-top: 20px; text-align: left;">
                 <label style="font-size: 22px; display: block; margin-bottom: 10px; color: #ccc; text-align: center;">Select Arena</label>
-                <div style="display: flex; gap: 15px; margin-bottom: 30px; justify-content: center;">
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 30px; justify-content: center; max-width: 600px;">
                     <div class="map-card active" data-map="classic">
-                        <div class="map-name">Classic</div>
-                        <div class="map-desc">Standard Neon Grid</div>
+                        <div class="map-name" style="font-size: 20px;">Classic</div>
+                        <div class="map-desc" style="font-size: 14px;">Standard Neon Grid</div>
                     </div>
                     <div class="map-card" data-map="island">
-                        <div class="map-name">Island</div>
-                        <div class="map-desc">Open Sand Arena</div>
+                        <div class="map-name" style="font-size: 20px;">Island</div>
+                        <div class="map-desc" style="font-size: 14px;">Open Sand Arena</div>
                     </div>
                     <div class="map-card" data-map="platform">
-                        <div class="map-name">Platform</div>
-                        <div class="map-desc">Dark Void Falloff</div>
+                        <div class="map-name" style="font-size: 20px;">Platform</div>
+                        <div class="map-desc" style="font-size: 14px;">Dark Void Falloff</div>
                     </div>
                     <div class="map-card" data-map="city">
-                        <div class="map-name">City</div>
-                        <div class="map-desc">Buildings and Nature Cover</div>
+                        <div class="map-name" style="font-size: 20px;">City</div>
+                        <div class="map-desc" style="font-size: 14px;">Buildings and Nature Cover</div>
+                    </div>
+                    <div class="map-card" data-map="desert">
+                        <div class="map-name" style="font-size: 20px;">Desert</div>
+                        <div class="map-desc" style="font-size: 14px;">Dune Ruins</div>
+                    </div>
+                    <div class="map-card" data-map="space">
+                        <div class="map-name" style="font-size: 20px;">Space</div>
+                        <div class="map-desc" style="font-size: 14px;">Starry Platforms</div>
+                    </div>
+                    <div class="map-card" data-map="lava">
+                        <div class="map-name" style="font-size: 20px;">Lava</div>
+                        <div class="map-desc" style="font-size: 14px;">Scorching Pits</div>
                     </div>
                 </div>
                 <!-- Hidden select to maintain compatibility with main.js -->
@@ -222,6 +234,9 @@
                     <option value="island">Island Arena</option>
                     <option value="platform">Sky Platform</option>
                     <option value="city">City</option>
+                    <option value="desert">Desert Ruins</option>
+                    <option value="space">Space Station</option>
+                    <option value="lava">Lava Pit</option>
                 </select>
             </div>
 
