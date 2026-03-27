@@ -76,14 +76,35 @@ ctx.beginPath(); ctx.arc(0, 512, 8, 0, Math.PI*2); ctx.fill();
 ctx.beginPath(); ctx.arc(512, 512, 8, 0, Math.PI*2); ctx.fill();
 ctx.shadowBlur = 0;
 
+// Procedural Bump Map for Building Texture
+const bumpCanvas = document.createElement('canvas');
+bumpCanvas.width = 512; bumpCanvas.height = 512;
+const bctx = bumpCanvas.getContext('2d');
+bctx.fillStyle = '#000000'; // Base height (low)
+bctx.fillRect(0, 0, 512, 512);
+// Raised edges
+bctx.strokeStyle = '#FFFFFF'; // Max height
+bctx.lineWidth = 12;
+bctx.strokeRect(0, 0, 512, 512);
+// Raised inner bracing
+bctx.strokeStyle = '#888888'; // Mid height
+bctx.lineWidth = 6;
+bctx.beginPath(); bctx.moveTo(0, 0); bctx.lineTo(512, 512); bctx.moveTo(512, 0); bctx.lineTo(0, 512); bctx.stroke();
+
 const gridTexture = new THREE.CanvasTexture(canvas);
 gridTexture.wrapS = THREE.RepeatWrapping;
 gridTexture.wrapT = THREE.RepeatWrapping;
 gridTexture.repeat.set(1, 1); // 1 to 1 mapping with grid piece
 
+const bumpTexture = new THREE.CanvasTexture(bumpCanvas);
+bumpTexture.wrapS = THREE.RepeatWrapping; bumpTexture.wrapT = THREE.RepeatWrapping;
+bumpTexture.repeat.set(1, 1);
+
 const buildMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: gridTexture,
+    bumpMap: bumpTexture,
+    bumpScale: 0.05,
     metalness: 0.7,
     roughness: 0.2,
     transparent: true,
@@ -108,6 +129,9 @@ let ghostMesh;
 let ghostRampMesh; // Separate mesh needed for ramp rotation visually
 let builtObjects = [];
 let placementRotation = 0; // 0, 1, 2, 3 (* 90 degrees)
+
+// Particle Systems
+let dustParticles;
 
 // Movement state
 let moveForward = false;
@@ -553,9 +577,9 @@ function init() {
     // --- WEAPONS SYSTEM ---
     gunMesh = new THREE.Group();
 
-    // Materials
-    const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.8 });
-    const greyPolymer = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+    // Materials (Enhanced V9)
+    const darkMetal = new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.2, metalness: 0.9, flatShading: true });
+    const greyPolymer = new THREE.MeshStandardMaterial({ color: 0x2A2A30, roughness: 0.6, metalness: 0.4, flatShading: true });
 
     // Create AR Mesh
     const arMesh = new THREE.Group();
@@ -664,6 +688,35 @@ function init() {
     scene.background = new THREE.Color(skyColor);
     scene.fog = new THREE.FogExp2(fogColor, fogDensity);
 
+    // Dynamic Sky System (Graphics V9)
+    if (currentMap !== 'space' && currentMap !== 'platform' && currentMap !== 'lava') {
+        const sky = new Sky();
+        sky.scale.setScalar(450000);
+
+        const phi = THREE.MathUtils.degToRad(90 - 20); // Elevation
+        const theta = THREE.MathUtils.degToRad(180); // Azimuth
+        const sunPosition = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+
+        sky.material.uniforms['sunPosition'].value.copy(sunPosition);
+
+        // Adjust scattering to match map vibe
+        if (currentMap === 'desert') {
+            sky.material.uniforms['turbidity'].value = 10;
+            sky.material.uniforms['rayleigh'].value = 3;
+            sky.material.uniforms['mieCoefficient'].value = 0.05;
+            sky.material.uniforms['mieDirectionalG'].value = 0.8;
+        } else {
+            sky.material.uniforms['turbidity'].value = 2; // Crisp air
+            sky.material.uniforms['rayleigh'].value = 1;
+            sky.material.uniforms['mieCoefficient'].value = 0.005;
+            sky.material.uniforms['mieDirectionalG'].value = 0.8;
+        }
+
+        scene.add(sky);
+        // Sun light to match sky sun
+        dirLight.position.copy(sunPosition).multiplyScalar(100);
+    }
+
     // If space, add stars
     if (currentMap === 'space') {
         const starGeo = new THREE.BufferGeometry();
@@ -676,6 +729,30 @@ function init() {
         const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 0.7});
         const stars = new THREE.Points(starGeo, starMat);
         scene.add(stars);
+    } else {
+        // Atmospheric Dust Particles for other maps
+        const dustGeo = new THREE.BufferGeometry();
+        const dustCount = 1000;
+        const dustPos = new Float32Array(dustCount * 3);
+        for(let i=0; i<dustCount*3; i++) {
+            dustPos[i] = (Math.random() - 0.5) * 200; // Spread across map
+        }
+        dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+
+        let dustColor = 0xffffff;
+        if (currentMap === 'desert') dustColor = 0xE6C280;
+        if (currentMap === 'lava') dustColor = 0xFF5500;
+
+        const dustMat = new THREE.PointsMaterial({
+            color: dustColor,
+            size: 0.3,
+            transparent: true,
+            opacity: 0.4,
+            depthWrite: false
+        });
+        dustParticles = new THREE.Points(dustGeo, dustMat);
+        dustParticles.position.y = 20; // Float slightly up
+        scene.add(dustParticles);
     }
 
     // Sync lights to match the mood
@@ -769,11 +846,17 @@ function init() {
     groundTex.magFilter = THREE.NearestFilter;
     groundTex.minFilter = THREE.NearestMipmapLinearFilter;
 
+    // We can use the same canvas to generate a crude bump map based on brightness.
+    // For a real game, you'd draw a separate bump map. For here, using the color map
+    // as a bump map works well enough because lines are bright (high) and bases are dark (low).
+
     // Adjust material properties based on map
     const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
     const groundMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: groundTex,
+        bumpMap: groundTex,
+        bumpScale: currentMap === 'lava' ? 0.2 : 0.02,
         roughness: (currentMap === 'lava' || currentMap === 'space') ? 0.4 : 1.0,
         metalness: currentMap === 'space' ? 0.8 : 0.0,
         flatShading: true,
@@ -1290,6 +1373,17 @@ function animate() {
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
+
+    // Update Dust Particles
+    if (dustParticles) {
+        dustParticles.rotation.y += delta * 0.05;
+        const positions = dustParticles.geometry.attributes.position.array;
+        for (let i = 1; i < dustParticles.geometry.attributes.position.count * 3; i += 3) {
+            positions[i] -= delta * 0.5; // fall slowly
+            if (positions[i] < -50) positions[i] = 50; // wrap around
+        }
+        dustParticles.geometry.attributes.position.needsUpdate = true;
+    }
 
     // Update Particles
     for (let i = particles.length - 1; i >= 0; i--) {
