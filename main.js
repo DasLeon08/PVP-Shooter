@@ -37,37 +37,50 @@ const debrisMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0
 
 // Create a simple procedural grid texture for buildings (Sci-Fi Neon)
 const canvas = document.createElement('canvas');
-canvas.width = 256; canvas.height = 256;
+canvas.width = 512; canvas.height = 512;
 const ctx = canvas.getContext('2d');
-// Base dark metal
-ctx.fillStyle = '#111118';
-ctx.fillRect(0, 0, 256, 256);
-// Neon grid lines
-ctx.strokeStyle = '#00ffcc';
-ctx.lineWidth = 2;
-ctx.shadowColor = '#00ffcc';
-ctx.shadowBlur = 10;
-ctx.strokeRect(0, 0, 256, 256);
+// Glassmorphic translucent base
+ctx.fillStyle = 'rgba(20, 20, 30, 0.4)';
+ctx.fillRect(0, 0, 512, 512);
 
-// Inner cross
+// Stronger Neon grid lines
+ctx.strokeStyle = 'rgba(0, 255, 204, 0.8)';
+ctx.lineWidth = 4;
+ctx.strokeRect(0, 0, 512, 512);
+
+// Hexagon-like inner structural pattern for 1v1.lol vibe
+ctx.strokeStyle = 'rgba(0, 255, 204, 0.3)';
+ctx.lineWidth = 2;
 ctx.beginPath();
-ctx.moveTo(128, 0); ctx.lineTo(128, 256);
-ctx.moveTo(0, 128); ctx.lineTo(256, 128);
+ctx.moveTo(0, 0); ctx.lineTo(512, 512);
+ctx.moveTo(512, 0); ctx.lineTo(0, 512);
+ctx.moveTo(256, 0); ctx.lineTo(256, 512);
+ctx.moveTo(0, 256); ctx.lineTo(512, 256);
 ctx.stroke();
+
+// Add glowing dots at intersections
+ctx.fillStyle = '#ffffff';
+ctx.beginPath(); ctx.arc(256, 256, 6, 0, Math.PI*2); ctx.fill();
+ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.fill();
+ctx.beginPath(); ctx.arc(512, 0, 6, 0, Math.PI*2); ctx.fill();
+ctx.beginPath(); ctx.arc(0, 512, 6, 0, Math.PI*2); ctx.fill();
+ctx.beginPath(); ctx.arc(512, 512, 6, 0, Math.PI*2); ctx.fill();
 
 const gridTexture = new THREE.CanvasTexture(canvas);
 gridTexture.wrapS = THREE.RepeatWrapping;
 gridTexture.wrapT = THREE.RepeatWrapping;
-gridTexture.repeat.set(1, 1);
+gridTexture.repeat.set(2, 2); // Increased tiling
 
 const buildMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     map: gridTexture,
-    metalness: 0.8,
-    roughness: 0.2,
+    metalness: 0.3,
+    roughness: 0.1,
+    transparent: true,
+    opacity: 0.85,
     emissive: 0x00ffcc,
-    emissiveMap: gridTexture,
-    emissiveIntensity: 1.5 // Increased to pierce the higher bloom threshold
+    emissiveIntensity: 0.3,
+    side: THREE.DoubleSide
 });
 
 const ghostMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.4, depthWrite: false, wireframe: true });
@@ -362,16 +375,16 @@ function init() {
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
 
-    // Better shadow resolution
-    dirLight.shadow.mapSize.width = 4096;
-    dirLight.shadow.mapSize.height = 4096;
-    dirLight.shadow.camera.top = 200;
-    dirLight.shadow.camera.bottom = -200;
-    dirLight.shadow.camera.left = -200;
-    dirLight.shadow.camera.right = 200;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 500;
-    dirLight.shadow.bias = -0.0005; // Tweak for stronger light
+    // Better shadow resolution for cleaner look
+    dirLight.shadow.mapSize.width = 8192; // Higher resolution
+    dirLight.shadow.mapSize.height = 8192;
+    dirLight.shadow.camera.top = 300;
+    dirLight.shadow.camera.bottom = -300;
+    dirLight.shadow.camera.left = -300;
+    dirLight.shadow.camera.right = 300;
+    dirLight.shadow.camera.near = 0.1;
+    dirLight.shadow.camera.far = 1000;
+    dirLight.shadow.bias = -0.0001; // Tweak to prevent shadow acne
     scene.add(dirLight);
 
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4); // Subtle bounce light
@@ -645,6 +658,10 @@ function init() {
     gctx.moveTo(0, 256); gctx.lineTo(512, 256);
     gctx.stroke();
 
+    // Add a glowing central dot
+    gctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    gctx.beginPath(); gctx.arc(256, 256, 12, 0, Math.PI*2); gctx.fill();
+
     const groundTex = new THREE.CanvasTexture(groundCanvas);
     groundTex.wrapS = THREE.RepeatWrapping;
     groundTex.wrapT = THREE.RepeatWrapping;
@@ -802,6 +819,13 @@ function spawnBuildingFromServer(data) {
     }
 
     const mesh = new THREE.Mesh(geo, materialToUse);
+
+    if (!isEnvironment) {
+        // Add outline edges to the building mesh
+        const edges = new THREE.EdgesGeometry(geo);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2, opacity: 0.8, transparent: true }));
+        mesh.add(line);
+    }
 
     // If it's a tree, add leaves
     if (data.type === 'tree') {
@@ -1039,6 +1063,11 @@ function placeBuilding() {
     mesh.rotation.copy(activeGhost.rotation);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+
+    // Add outline edges to the building mesh
+    const edges = new THREE.EdgesGeometry(geo);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 2, opacity: 0.8, transparent: true }));
+    mesh.add(line);
 
     // Generate a temporary ID until server confirms
     if (socket) {

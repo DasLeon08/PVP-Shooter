@@ -143,15 +143,35 @@
             display: flex; justify-content: center; align-items: center; flex-direction: column;
             font-weight: 600; font-size: 28px; transition: all 0.2s;
             box-shadow: 0 5px 10px rgba(0,0,0,0.3); position: relative;
+            color: rgba(255, 255, 255, 0.5); /* Dim number when not active */
         }
 
         .slot.active {
-            border-color: #00ffcc; background: rgba(0, 255, 204, 0.15);
-            transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 255, 204, 0.2);
+            border-color: #00ffcc; background: rgba(0, 255, 204, 0.2);
+            transform: translateY(-5px) scale(1.1); box-shadow: 0 0 20px rgba(0, 255, 204, 0.4);
+            color: #fff; /* Brighten number */
         }
 
         .slot-label {
-            position: absolute; top: -25px; font-size: 16px; color: #aaa; text-transform: uppercase; letter-spacing: 1px;
+            position: absolute; top: -25px; font-size: 14px; color: #aaa; text-transform: uppercase; letter-spacing: 1px;
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        .slot.active .slot-label {
+            color: #00ffcc; font-weight: bold; text-shadow: 0 0 5px rgba(0,255,204,0.5);
+        }
+
+        .slot-icon {
+            width: 35px; height: 35px; margin-bottom: 2px;
+            fill: rgba(255,255,255,0.7); transition: fill 0.2s;
+        }
+
+        .slot.active .slot-icon {
+            fill: #00ffcc; filter: drop-shadow(0 0 5px rgba(0,255,204,0.5));
+        }
+
+        .slot-number {
+            font-size: 14px; position: absolute; bottom: 2px; right: 5px; opacity: 0.8;
         }
     </style>
     <!-- Import maps polyfill -->
@@ -241,31 +261,38 @@
     <div id="hotbar" style="display: none;">
         <div class="slot active" id="slot-1">
             <span class="slot-label">AR</span>
-            1
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M21.5,9.5L20,8L16,12L15,11L19,7L17.5,5.5L16.29,6.71L14,4.41L11.58,6.83L12.5,7.75L10.25,10L8.75,8.5L7.5,9.75L9.5,11.75L3,18.25V21H5.75L12.25,14.5L14.25,16.5L15.5,15.25L14,13.75L16.25,11.5L17.17,12.42L19.59,10L17.29,7.71L18.5,6.5L20,8L16,12L15,11L19,7L17.5,5.5L21.5,9.5Z" /></svg>
+            <span class="slot-number">1</span>
         </div>
         <div class="slot" id="slot-2">
             <span class="slot-label">SMG</span>
-            2
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M21 11H19V7H17V11H15V7H13V11H11V7H9V11H7V7H5V11H3V13H5V17H7V13H9V17H11V13H13V17H15V13H17V17H19V13H21V11Z"/></svg>
+            <span class="slot-number">2</span>
         </div>
         <div class="slot" id="slot-3">
             <span class="slot-label">Shot</span>
-            3
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M21.5 10.5L20 9L15 14L13 12L18 7L16.5 5.5L14 8L11 5L12 6L9 9L7 7L5 9L8 12L2 18V22H6L12 16L15 19L17 17L18 18L15 15L16 14L21.5 10.5Z"/></svg>
+            <span class="slot-number">3</span>
         </div>
         <div class="slot" id="slot-4">
             <span class="slot-label">Wall</span>
-            4
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M3,5A2,2 0 0,1 5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21H5C3.89,21 3,20.1 3,19V5M5,5V9H10V5H5M12,5V9H19V5H12M19,11H15V15H19V11M13,11H5V15H13V11M5,17V19H11V17H5M13,17V19H19V17H13Z" /></svg>
+            <span class="slot-number">4</span>
         </div>
         <div class="slot" id="slot-5">
             <span class="slot-label">Floor</span>
-            5
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M22,14V17H2V14H22M22,19V22H2V19H22M22,9V12H2V9H22Z" /></svg>
+            <span class="slot-number">5</span>
         </div>
         <div class="slot" id="slot-6">
             <span class="slot-label">Ramp</span>
-            6
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M3,21V3H5V19H21V21H3M19,5L5,19H19V5Z" /></svg>
+            <span class="slot-number">6</span>
         </div>
         <div class="slot" id="slot-7">
             <span class="slot-label">Heal</span>
-            7
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M10,2H14V5H17V9H14V12H10V9H7V5H10V2M10,14H14V17H17V21H14V24H10V21H7V17H10V14Z" /></svg>
+            <span class="slot-number">7</span>
         </div>
     </div>
 
