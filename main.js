@@ -19,8 +19,12 @@ let otherPlayers = {}; // To store meshes of other players
 let currentMap = 'classic';
 let health = 100;
 
+let weaponSpawnsLocal = {}; // Store pickup meshes
+let myWeapons = []; // Don't have weapons initially
+let interactionText;
+
 // Build System State
-let currentMode = 'weapon'; // weapon, wall, floor, ramp
+let currentMode = 'hands'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
 let gunMesh;
 
@@ -233,6 +237,32 @@ function initNetwork() {
                  spawnBuildingFromServer(existingObjects[objId]);
             }
         }
+
+        // Load weapon spawns
+        const spawns = data.weaponSpawns;
+        for (let spawnId in spawns) {
+            if (spawns[spawnId].map === currentMap && spawns[spawnId].lobby === currentLobby) {
+                 spawnWeaponPickup(spawns[spawnId]);
+            }
+        }
+    });
+
+    socket.on('weaponSpawnUpdate', (data) => {
+        const localSpawn = weaponSpawnsLocal[data.id];
+        if (localSpawn) {
+            localSpawn.mesh.visible = data.active;
+            localSpawn.active = data.active;
+        }
+    });
+
+    socket.on('weaponPickedUp', (data) => {
+        if (!myWeapons.includes(data.weaponType)) {
+            myWeapons.push(data.weaponType);
+            setMode(data.weaponType);
+        } else {
+            // Already have it, refill ammo? (If ammo system exists, skipping for now)
+            setMode(data.weaponType);
+        }
     });
 
     // Handle building events from server
@@ -373,8 +403,49 @@ function initNetwork() {
             // Teleport physics body
             playerBody.position.set(data.x, data.y, data.z);
             playerBody.velocity.set(0,0,0);
+
+            // Lose weapons on death
+            myWeapons = [];
+            setMode('hands');
         }
     });
+}
+
+function spawnWeaponPickup(data) {
+    if (weaponSpawnsLocal[data.id]) return; // Already exists
+
+    const pickupGroup = new THREE.Group();
+    pickupGroup.position.set(data.x, data.y, data.z);
+
+    // Simple visual for now: a glowing rotating box colored by weapon type
+    let color = 0xffffff;
+    if (data.weaponType === 'ar') color = 0x00ffcc;
+    if (data.weaponType === 'smg') color = 0xff00ff;
+    if (data.weaponType === 'shotgun') color = 0xffaa00;
+    if (data.weaponType === 'sniper') color = 0xff3333;
+    if (data.weaponType === 'pistol') color = 0x00ccff;
+
+    const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+    const mat = new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 1.5, wireframe: true });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    // Inner solid core
+    const coreMat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.1 });
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), coreMat);
+    pickupGroup.add(mesh, core);
+
+    // Floating light
+    const light = new THREE.PointLight(color, 1, 3);
+    pickupGroup.add(light);
+
+    pickupGroup.visible = data.active;
+    scene.add(pickupGroup);
+
+    weaponSpawnsLocal[data.id] = {
+        mesh: pickupGroup,
+        type: data.weaponType,
+        active: data.active
+    };
 }
 
 
@@ -468,7 +539,8 @@ function init() {
 
     // Track mouse movement for weapon sway
     document.addEventListener('mousemove', (event) => {
-        if (controls.isLocked && currentMode === 'weapon') {
+        const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+        if (controls.isLocked && isWeaponMode) {
             // Add mouse delta to sway velocity
             gunSwayVelocity.x += event.movementX * 0.0005;
             gunSwayVelocity.y += event.movementY * 0.0005;
@@ -636,6 +708,29 @@ function init() {
     const sgRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.1), sgNeonMat); sgRail.position.set(0, 0.05, 0);
     sgMesh.add(sgReceiver, sgBarrel1, sgBarrel2, sgStock, sgGrip, sgRail);
 
+    // Create Sniper Mesh (Long barrel, scope)
+    const sniperMesh = new THREE.Group();
+    sniperMesh.name = "sniper";
+    const snipNeonMat = new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0xff3333, emissiveIntensity: 2.5 });
+    const snipReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.5), darkMetal); snipReceiver.position.set(0, 0, 0.1);
+    const snipBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0, 16), darkMetal); snipBarrel.rotation.x = Math.PI / 2; snipBarrel.position.set(0, 0.02, -0.6);
+    const snipScope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 16), darkMetal); snipScope.rotation.x = Math.PI / 2; snipScope.position.set(0, 0.15, 0);
+    const snipStock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.3), greyPolymer); snipStock.position.set(0, -0.03, 0.5);
+    const snipMag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.08), greyPolymer); snipMag.position.set(0, -0.12, 0.1);
+    const snipGrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.06), greyPolymer); snipGrip.rotation.x = Math.PI / 16; snipGrip.position.set(0, -0.1, 0.25);
+    const snipRail = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 0.4), snipNeonMat); snipRail.position.set(0, 0.06, -0.3);
+    sniperMesh.add(snipReceiver, snipBarrel, snipScope, snipStock, snipMag, snipGrip, snipRail);
+
+    // Create Pistol Mesh (Small)
+    const pistolMesh = new THREE.Group();
+    pistolMesh.name = "pistol";
+    const pistNeonMat = new THREE.MeshStandardMaterial({ color: 0x00ccff, emissive: 0x00ccff, emissiveIntensity: 2.5 });
+    const pistReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.25), darkMetal); pistReceiver.position.set(0, 0, -0.05);
+    const pistGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.08), greyPolymer); pistGrip.rotation.x = Math.PI / 16; pistGrip.position.set(0, -0.08, 0.05);
+    const pistBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.1), darkMetal); pistBarrel.position.set(0, 0.02, -0.2);
+    const pistRail = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.15), pistNeonMat); pistRail.position.set(0, 0.05, -0.1);
+    pistolMesh.add(pistReceiver, pistGrip, pistBarrel, pistRail);
+
     // Muzzle Flash Visuals (V11)
     const flashGroup = new THREE.Group();
     flashGroup.position.set(0, 0.02, -0.75);
@@ -657,12 +752,16 @@ function init() {
     gunMesh.add(arMesh);
     gunMesh.add(smgMesh);
     gunMesh.add(sgMesh);
+    gunMesh.add(sniperMesh);
+    gunMesh.add(pistolMesh);
     gunMesh.add(flashGroup);
 
-    // Default to AR
-    arMesh.visible = true;
+    // Default to empty hands (no weapon) initially
+    arMesh.visible = false;
     smgMesh.visible = false;
     sgMesh.visible = false;
+    sniperMesh.visible = false;
+    pistolMesh.visible = false;
 
     // Position relative to camera
     gunMesh.position.copy(baseGunPosition);
@@ -713,6 +812,18 @@ function init() {
         skyColor = 0x220000; // Dark red hellish sky
         fogColor = 0x440000;
         fogDensity = 0.002;
+    } else if (currentMap === 'snow') {
+        groundColor = 0xE0F0FF; // Ice white
+        groundSize = 300;
+        skyColor = 0xAACCFF; // Pale blue winter sky
+        fogColor = 0xEEEEFF;
+        fogDensity = 0.01;
+    } else if (currentMap === 'forest') {
+        groundColor = 0x2E5B2C; // Deep forest green
+        groundSize = 300;
+        skyColor = 0x87CEEB; // Clear sky
+        fogColor = 0x88AA88; // Slight green haze
+        fogDensity = 0.004;
     }
 
     scene.background = new THREE.Color(skyColor);
@@ -796,6 +907,8 @@ function init() {
         let dustColor = 0xffffff;
         if (currentMap === 'desert') dustColor = 0xE6C280;
         if (currentMap === 'lava') dustColor = 0xFF5500;
+        if (currentMap === 'snow') dustColor = 0xFFFFFF; // Snowflakes
+        if (currentMap === 'forest') dustColor = 0x88CC88; // Leaves/pollen
 
         const dustMat = new THREE.PointsMaterial({
             color: dustColor,
@@ -895,6 +1008,20 @@ function init() {
             gctx.beginPath(); gctx.moveTo(Math.random()*512, 0); gctx.lineTo(Math.random()*512, 256); gctx.lineTo(Math.random()*512, 512); gctx.stroke();
         }
         gctx.shadowBlur = 0; // reset
+    } else if (currentMap === 'snow') {
+        gctx.fillStyle = '#E0F0FF'; gctx.fillRect(0,0,512,512);
+        // Ice patches
+        for(let i=0; i<300; i++) {
+            gctx.fillStyle = 'rgba(255,255,255,0.8)';
+            gctx.fillRect(Math.random()*512, Math.random()*512, 10, 10);
+        }
+    } else if (currentMap === 'forest') {
+        gctx.fillStyle = '#2E5B2C'; gctx.fillRect(0,0,512,512);
+        // Dirt patches and grass blades
+        for(let i=0; i<500; i++) {
+            gctx.fillStyle = Math.random() > 0.5 ? '#3B7038' : '#453521'; // Grass or dirt
+            gctx.beginPath(); gctx.arc(Math.random()*512, Math.random()*512, 5+Math.random()*15, 0, Math.PI*2); gctx.fill();
+        }
     }
 
     const groundTex = new THREE.CanvasTexture(groundCanvas);
@@ -964,6 +1091,13 @@ function init() {
             // Jagged rocks and sunken lava pits
             y = Math.sin(x * 0.1) * Math.sin(z * 0.1) * 3;
             if (y < 0) y *= 2; // Deeper pits
+        } else if (currentMap === 'snow') {
+            // Gentle snowdrifts
+            y = Math.sin(x * 0.03) * Math.cos(z * 0.03) * 3;
+        } else if (currentMap === 'forest') {
+            // Hilly uneven ground
+            y = Math.sin(x * 0.08) * Math.cos(z * 0.06) * 4;
+            y += Math.sin(x * 0.2) * 1;
         }
 
         vertices[i+1] = y * flattenFactor;
@@ -1077,20 +1211,23 @@ function init() {
 
         // Mode switching
         switch(event.code) {
-            case 'Digit1': setMode('ar'); break;
-            case 'Digit2': setMode('smg'); break;
-            case 'Digit3': setMode('shotgun'); break;
+            case 'Digit1': if(myWeapons.includes('ar')) setMode('ar'); break;
+            case 'Digit2': if(myWeapons.includes('smg')) setMode('smg'); break;
+            case 'Digit3': if(myWeapons.includes('shotgun')) setMode('shotgun'); break;
+            case 'Digit8': if(myWeapons.includes('sniper')) setMode('sniper'); break;
+            case 'Digit9': if(myWeapons.includes('pistol')) setMode('pistol'); break;
             case 'Digit4': setMode('wall'); break;
             case 'Digit5': setMode('floor'); break;
             case 'Digit6': setMode('ramp'); break;
             case 'Digit7': setMode('heal'); break;
+            case 'KeyE': interactWithPickup(); break;
         }
     });
 
     document.addEventListener('mousedown', (event) => {
         if (!controls.isLocked) return;
 
-        const isWeapon = currentMode === 'ar' || currentMode === 'smg' || currentMode === 'shotgun';
+        const isWeapon = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
 
         if (event.button === 0) { // Left click
             if (currentMode === 'heal') {
@@ -1273,8 +1410,12 @@ function useHeal() {
     // Let server know
     socket.emit('useHeal', { amount: 25 });
 
-    // Switch back to weapon immediately after healing
-    setMode('ar');
+    // Switch back to previously held weapon, or hands if none
+    if (myWeapons.length > 0) {
+        setMode(myWeapons[0]);
+    } else {
+        setMode('hands');
+    }
 }
 
 function shoot() {
@@ -1293,6 +1434,14 @@ function shoot() {
         damage = 80;
         kickback = 0.3;
         muzzleClimb = Math.PI / 8;
+    } else if (currentMode === 'sniper') {
+        damage = 150;
+        kickback = 0.4;
+        muzzleClimb = Math.PI / 6;
+    } else if (currentMode === 'pistol') {
+        damage = 25;
+        kickback = 0.1;
+        muzzleClimb = Math.PI / 20;
     }
 
     // Visual recoil & muzzle flash animation
@@ -1394,12 +1543,12 @@ function setMode(mode) {
     currentMode = mode;
 
     // Toggle weapon visibility
-    const isWeapon = mode === 'ar' || mode === 'smg' || mode === 'shotgun';
+    const isWeapon = mode === 'ar' || mode === 'smg' || mode === 'shotgun' || mode === 'sniper' || mode === 'pistol';
     if (gunMesh) {
         gunMesh.visible = isWeapon;
         if (isWeapon) {
             gunMesh.children.forEach(c => {
-                if (c.name === 'ar' || c.name === 'smg' || c.name === 'shotgun') {
+                if (['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(c.name)) {
                     c.visible = (c.name === mode);
                 }
             });
@@ -1407,13 +1556,15 @@ function setMode(mode) {
     }
 
     // Update UI
-    let displayMode = mode === 'ar' ? 'Assault Rifle' : mode === 'smg' ? 'SMG' : mode === 'shotgun' ? 'Shotgun' : mode;
+    let displayMode = mode === 'ar' ? 'Assault Rifle' : mode === 'smg' ? 'SMG' : mode === 'shotgun' ? 'Shotgun' : mode === 'sniper' ? 'Sniper' : mode === 'pistol' ? 'Pistol' : mode;
     document.getElementById('modeDisplay').innerText = `Mode: ${displayMode.charAt(0).toUpperCase() + displayMode.slice(1)}`;
     document.querySelectorAll('.slot').forEach(el => el.classList.remove('active'));
 
     if(mode === 'ar') document.getElementById('slot-1').classList.add('active');
     if(mode === 'smg') document.getElementById('slot-2').classList.add('active');
     if(mode === 'shotgun') document.getElementById('slot-3').classList.add('active');
+    if(mode === 'sniper') document.getElementById('slot-8').classList.add('active');
+    if(mode === 'pistol') document.getElementById('slot-9').classList.add('active');
     if(mode === 'wall') document.getElementById('slot-4').classList.add('active');
     if(mode === 'floor') document.getElementById('slot-5').classList.add('active');
     if(mode === 'ramp') document.getElementById('slot-6').classList.add('active');
@@ -1424,6 +1575,8 @@ function setMode(mode) {
 }
 
 function placeBuilding() {
+    if (!['wall', 'floor', 'ramp'].includes(currentMode)) return; // Safety check
+
     let activeGhost = currentMode === 'ramp' ? ghostRampMesh : ghostMesh;
 
     let geo;
@@ -1497,7 +1650,8 @@ function placeBuilding() {
 }
 
 function updateGhostPlacement() {
-    if (currentMode === 'weapon') {
+    const isBuilding = ['wall', 'floor', 'ramp'].includes(currentMode);
+    if (!isBuilding) {
         ghostMesh.visible = false;
         ghostRampMesh.visible = false;
         return;
@@ -1570,11 +1724,50 @@ function onWindowResize() {
     if(composer) composer.setSize(window.innerWidth, window.innerHeight);
 }
 
+function interactWithPickup() {
+    if (window.currentPickupId && !isSpectator) {
+        socket.emit('pickupWeapon', { spawnId: window.currentPickupId });
+    }
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
+
+    // Check for weapon pickups
+    if (!interactionText) interactionText = document.getElementById('interactionText');
+    let canPickup = false;
+    let pickupId = null;
+
+    for (let id in weaponSpawnsLocal) {
+        let ws = weaponSpawnsLocal[id];
+        if (ws.active) {
+            // Animate
+            ws.mesh.rotation.y += delta;
+            ws.mesh.position.y = ws.mesh.position.y + Math.sin(time * 0.005) * 0.002;
+
+            // Distance check
+            if (controls.isLocked && playerBody) {
+                const dist = playerBody.position.distanceTo(ws.mesh.position);
+                if (dist < 3) {
+                    canPickup = true;
+                    pickupId = id;
+                }
+            }
+        }
+    }
+
+    if (canPickup && !isSpectator) {
+        interactionText.style.display = 'block';
+        interactionText.innerText = `Press E to Pick Up ${weaponSpawnsLocal[pickupId].type.toUpperCase()}`;
+        // Store for E key
+        window.currentPickupId = pickupId;
+    } else {
+        interactionText.style.display = 'none';
+        window.currentPickupId = null;
+    }
 
     // Update Dust Particles
     if (dustParticles) {
@@ -1741,21 +1934,24 @@ function animate() {
             targetCameraY = 0.5 + Math.sin(bobTimer) * 0.08;
 
             // Gun bobs with camera but slightly offset
-            if (currentMode === 'weapon') {
+            const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+            if (isWeaponMode) {
                 gunMesh.position.y = baseGunPosition.y + Math.sin(bobTimer * 2) * 0.02;
                 gunMesh.position.x = baseGunPosition.x + Math.cos(bobTimer) * 0.02;
             }
         } else {
             bobTimer = 0; // Reset when standing still
             // Slowly return gun to base rest position
-            if (currentMode === 'weapon') {
+            const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+            if (isWeaponMode) {
                 gunMesh.position.y = THREE.MathUtils.lerp(gunMesh.position.y, baseGunPosition.y, delta * 10);
                 gunMesh.position.x = THREE.MathUtils.lerp(gunMesh.position.x, baseGunPosition.x, delta * 10);
             }
         }
 
         // Weapon Sway interpolation
-        if (currentMode === 'weapon') {
+        const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+        if (isWeaponMode) {
             // Apply sway inverse to mouse movement
             gunMesh.position.x -= gunSwayVelocity.x;
             gunMesh.position.y -= gunSwayVelocity.y;

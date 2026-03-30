@@ -227,6 +227,14 @@
                         <div class="map-name" style="font-size: 20px;">Lava</div>
                         <div class="map-desc" style="font-size: 14px;">Scorching Pits</div>
                     </div>
+                    <div class="map-card" data-map="snow">
+                        <div class="map-name" style="font-size: 20px;">Snow</div>
+                        <div class="map-desc" style="font-size: 14px;">Icy Tundra</div>
+                    </div>
+                    <div class="map-card" data-map="forest">
+                        <div class="map-name" style="font-size: 20px;">Forest</div>
+                        <div class="map-desc" style="font-size: 14px;">Dense Trees</div>
+                    </div>
                 </div>
                 <!-- Hidden select to maintain compatibility with main.js -->
                 <select id="mapSelect" style="display: none;">
@@ -237,6 +245,8 @@
                     <option value="desert">Desert Ruins</option>
                     <option value="space">Space Station</option>
                     <option value="lava">Lava Pit</option>
+                    <option value="snow">Snow Tundra</option>
+                    <option value="forest">Forest</option>
                 </select>
             </div>
 
@@ -270,7 +280,8 @@
 
     <div id="ui" style="display: none;">
         <h2>FPS Build Simulator</h2>
-        <div id="modeDisplay">Mode: Weapon (1)</div>
+        <div id="modeDisplay">Mode: Hands</div>
+        <div id="interactionText" style="display: none; color: yellow; font-size: 18px; margin-top: 5px;">Press E to Pickup</div>
     </div>
 
     <div id="healthBarContainer" style="display: none;">
@@ -293,6 +304,16 @@
             <span class="slot-label">Shot</span>
             <svg class="slot-icon" viewBox="0 0 24 24"><path d="M21.5 10.5L20 9L15 14L13 12L18 7L16.5 5.5L14 8L11 5L12 6L9 9L7 7L5 9L8 12L2 18V22H6L12 16L15 19L17 17L18 18L15 15L16 14L21.5 10.5Z"/></svg>
             <span class="slot-number">3</span>
+        </div>
+        <div class="slot" id="slot-8">
+            <span class="slot-label">Snip</span>
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+            <span class="slot-number">8</span>
+        </div>
+        <div class="slot" id="slot-9">
+            <span class="slot-label">Pist</span>
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M14 6H4V8H14V6ZM14 10H4V12H14V10ZM20 2H4C2.9 2 2 2.9 2 4V16C2 17.1 2.9 18 4 18H8L12 22L16 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2ZM20 16H15.17L12 19.17L8.83 16H4V4H20V16Z"/></svg>
+            <span class="slot-number">9</span>
         </div>
         <div class="slot" id="slot-4">
             <span class="slot-label">Wall</span>
@@ -337,7 +358,8 @@
             WASD = Move | SPACE = Jump<br>
             Left Click = Shoot / Build / Heal<br>
             Right Click = Aim (Weapon) / Rotate (Build)<br>
-            1/2/3 = Weapons<br>
+            E = Pick Up Weapon<br>
+            1/2/3/8/9 = Weapons<br>
             4/5/6 = Build<br>
             7 = Heal<br>
             ESC = Pause
