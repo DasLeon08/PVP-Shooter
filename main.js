@@ -130,7 +130,8 @@ let ghostRampMesh; // Separate mesh needed for ramp rotation visually
 let builtObjects = [];
 let placementRotation = 0; // 0, 1, 2, 3 (* 90 degrees)
 
-// Particle Systems
+// Environment References for Animation
+let activeGroundMesh;
 let dustParticles;
 
 // Movement state
@@ -379,7 +380,7 @@ function init() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; // ACES is brighter and cleaner for cartoonish looks
-    renderer.toneMappingExposure = 1.2; // Higher exposure for punchier global lighting (1v1.lol V8)
+    renderer.toneMappingExposure = 0.9; // Lowered from 1.2 to reduce blinding glare
     document.body.appendChild(renderer.domElement);
 
     // --- POST-PROCESSING (BLOOM) ---
@@ -397,11 +398,11 @@ function init() {
     ssaoPass.minDistance = 0.002; // Tighter min distance
     ssaoPass.maxDistance = 0.05; // Shorter max distance (prevents muddying flat surfaces)
 
-    // Enhanced bloom for stronger neon glows
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.8);
-    bloomPass.threshold = 0.8; // Lower threshold to let glowing materials pop more
-    bloomPass.strength = 0.6; // Stronger glow
-    bloomPass.radius = 0.4; // Slightly wider glow radius
+    // Controlled bloom for neon glows without washing out sky
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.4, 0.85);
+    bloomPass.threshold = 0.95; // Higher threshold so only very bright things glow
+    bloomPass.strength = 0.5; // Modest glow
+    bloomPass.radius = 0.3;
 
     const outputPass = new OutputPass();
 
@@ -715,6 +716,7 @@ function init() {
         scene.add(sky);
         // Sun light to match sky sun
         dirLight.position.copy(sunPosition).multiplyScalar(100);
+        dirLight.intensity = 1.2; // Softer sun for dynamic sky maps
     }
 
     // If space, add stars
@@ -756,8 +758,10 @@ function init() {
     }
 
     // Sync lights to match the mood
-    dirLight.position.set(80, 150, 60);
-    dirLight.intensity = (currentMap === 'space' || currentMap === 'lava') ? 1.0 : 2.5;
+    if (currentMap === 'space' || currentMap === 'lava') {
+        dirLight.position.set(80, 150, 60);
+        dirLight.intensity = 0.8;
+    }
     if (currentMap === 'lava') dirLight.color.setHex(0xffaa55);
 
     // Instead of realistic env map, use a simple ambient/hemisphere mix
@@ -850,8 +854,37 @@ function init() {
     // For a real game, you'd draw a separate bump map. For here, using the color map
     // as a bump map works well enough because lines are bright (high) and bases are dark (low).
 
+    // Topography generation (Graphics V10)
+    // We use a high-segment plane to allow vertex displacement
+    const segments = 64;
+    const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize, segments, segments);
+    groundGeo.rotateX(-Math.PI / 2); // Rotate to lay flat before displacing Y
+
+    const vertices = groundGeo.attributes.position.array;
+    for (let i = 0; i < vertices.length; i += 3) {
+        const x = vertices[i];
+        const z = vertices[i+2];
+        let y = 0;
+
+        // Keep the center (spawn area) relatively flat
+        const distFromCenter = Math.sqrt(x*x + z*z);
+        const flattenFactor = Math.min(1, Math.max(0, (distFromCenter - 20) / 30));
+
+        if (currentMap === 'island' || currentMap === 'desert') {
+            // Rolling dunes
+            y = Math.sin(x * 0.05) * Math.cos(z * 0.05) * 5;
+            y += Math.sin(x * 0.1) * 2;
+        } else if (currentMap === 'lava') {
+            // Jagged rocks and sunken lava pits
+            y = Math.sin(x * 0.1) * Math.sin(z * 0.1) * 3;
+            if (y < 0) y *= 2; // Deeper pits
+        }
+
+        vertices[i+1] = y * flattenFactor;
+    }
+    groundGeo.computeVertexNormals(); // Recalculate normals for lighting
+
     // Adjust material properties based on map
-    const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
     const groundMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: groundTex,
@@ -864,18 +897,30 @@ function init() {
         emissiveMap: currentMap === 'lava' ? groundTex : null
     });
     const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-    groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.receiveShadow = true;
     scene.add(groundMesh);
+    activeGroundMesh = groundMesh; // Save reference for animation
 
-    // Cannon-es Ground
-    // Use a box instead of a plane so you can fall off 'island' and 'platform'
-    const groundShape = new CANNON.Box(new CANNON.Vec3(groundSize/2, 1, groundSize/2));
+    // Cannon-es Ground (Trimesh for accurate collision with topography)
+    // Create a Trimesh physics body matching the displaced geometry exactly
+    // CANNON.Trimesh requires a flat array of positions, and a flat array of indices
+    // BufferGeometry may not have an index array by default if it's non-indexed
+    let indices = groundGeo.index ? groundGeo.index.array : [];
+    if (!groundGeo.index) {
+        // Generate indices for a non-indexed plane
+        indices = [];
+        for (let i = 0; i < vertices.length / 3 - segments - 2; i++) {
+            indices.push(i, i+1, i+segments+1);
+            indices.push(i+1, i+segments+2, i+segments+1);
+        }
+    }
+
+    const trimeshShape = new CANNON.Trimesh(groundGeo.attributes.position.array, indices);
     const groundBody = new CANNON.Body({
         type: CANNON.Body.STATIC,
-        shape: groundShape,
+        shape: trimeshShape,
         material: defaultMaterial,
-        position: new CANNON.Vec3(0, -1, 0) // Shift down so top is at y=0
+        position: new CANNON.Vec3(0, 0, 0)
     });
     world.addBody(groundBody);
 
@@ -1383,6 +1428,16 @@ function animate() {
             if (positions[i] < -50) positions[i] = 50; // wrap around
         }
         dustParticles.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // Active Map Animations (Texture Scrolling)
+    if (activeGroundMesh && activeGroundMesh.material.map) {
+        if (currentMap === 'lava') {
+            activeGroundMesh.material.map.offset.y -= delta * 0.05; // Flowing lava
+            activeGroundMesh.material.map.offset.x += delta * 0.02;
+        } else if (currentMap === 'space') {
+            activeGroundMesh.material.map.offset.y += delta * 0.02; // Moving space grid
+        }
     }
 
     // Update Particles
