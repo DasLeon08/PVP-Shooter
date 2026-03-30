@@ -132,7 +132,11 @@ let placementRotation = 0; // 0, 1, 2, 3 (* 90 degrees)
 
 // Environment References for Animation
 let activeGroundMesh;
+let oceanMesh;
 let dustParticles;
+let globalSky;
+let globalDirLight;
+let timeOfDay = 8; // Hours
 
 // Movement state
 let moveForward = false;
@@ -152,9 +156,12 @@ let prevTime = performance.now();
 // Start menu logic
 let isSpectator = false;
 
+let currentLobby = '';
+
 document.getElementById('playBtn').addEventListener('click', () => {
     isSpectator = false;
     document.getElementById('mainMenu').style.display = 'none';
+    currentLobby = document.getElementById('lobbyCodeInput').value.trim() || 'public';
 
     // Show UI
     document.getElementById('crosshair').style.display = 'block';
@@ -173,6 +180,7 @@ document.getElementById('playBtn').addEventListener('click', () => {
 document.getElementById('spectateBtn').addEventListener('click', () => {
     isSpectator = true;
     document.getElementById('mainMenu').style.display = 'none';
+    currentLobby = document.getElementById('lobbyCodeInput').value.trim() || 'public';
 
     // Hide combat UI for spectators
     document.getElementById('crosshair').style.display = 'none';
@@ -195,8 +203,11 @@ function initNetwork() {
         const tbody = document.getElementById('leaderboardBody');
         tbody.innerHTML = '';
 
+        // Filter out players in other lobbies or map
+        const lobbyPlayers = players.filter(p => p.lobby === currentLobby && p.map === currentMap);
+
         // Sort by kills
-        const sorted = players.sort((a, b) => b.kills - a.kills);
+        const sorted = lobbyPlayers.sort((a, b) => b.kills - a.kills);
 
         sorted.forEach(p => {
             if (p.isSpectator) return;
@@ -213,12 +224,12 @@ function initNetwork() {
     socket.on('initGame', (data) => {
         myId = data.socketId;
 
-        socket.emit('joinMap', { map: currentMap, isSpectator: isSpectator });
+        socket.emit('joinMap', { map: currentMap, isSpectator: isSpectator, lobby: currentLobby });
 
-        // Load existing buildings
+        // Load existing buildings from the lobby
         const existingObjects = data.builtObjects;
         for (let objId in existingObjects) {
-            if (existingObjects[objId].map === currentMap) {
+            if (existingObjects[objId].map === currentMap && existingObjects[objId].lobby === currentLobby) {
                  spawnBuildingFromServer(existingObjects[objId]);
             }
         }
@@ -237,7 +248,7 @@ function initNetwork() {
             }
             return;
         }
-        if (data.map !== currentMap) return;
+        if (data.map !== currentMap || data.lobby !== currentLobby) return;
 
         spawnBuildingFromServer(data);
     });
@@ -277,10 +288,10 @@ function initNetwork() {
         for (let id in players) {
             let p = players[id];
 
-            // Don't render ourselves or players on different maps
+            // Don't render ourselves, players on different maps, or in different lobbies
             if (id === myId) continue;
 
-            if (p.map !== currentMap) {
+            if (p.map !== currentMap || p.lobby !== currentLobby) {
                  if (otherPlayers[id]) {
                      scene.remove(otherPlayers[id].mesh);
                      delete otherPlayers[id];
@@ -378,7 +389,7 @@ function init() {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = window.location.search.includes('disable_ocean') ? THREE.PCFSoftShadowMap : THREE.VSMShadowMap; // VSM for buttery soft cinematic shadows (V12)
     renderer.toneMapping = THREE.ACESFilmicToneMapping; // ACES is brighter and cleaner for cartoonish looks
     renderer.toneMappingExposure = 0.9; // Lowered from 1.2 to reduce blinding glare
     document.body.appendChild(renderer.domElement);
@@ -392,11 +403,14 @@ function init() {
 
     const renderScene = new RenderPass(scene, camera);
 
+    // Antialiasing Pass using SMAA if available, but for now we rely on WebGLRenderTarget MSAA + standard FXAA/SSAA equivalents.
+    // The renderer MSAA handles most of it.
+
     // SSAO Pass (Ambient Occlusion for shadows in corners, like 1v1.lol)
     const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
-    ssaoPass.kernelRadius = 12; // Decrease radius for sharper shadows in corners
-    ssaoPass.minDistance = 0.002; // Tighter min distance
-    ssaoPass.maxDistance = 0.05; // Shorter max distance (prevents muddying flat surfaces)
+    ssaoPass.kernelRadius = 8; // Tighter kernel for more pronounced edge shadowing
+    ssaoPass.minDistance = 0.001; // Tighter min distance for close contact shadows
+    ssaoPass.maxDistance = 0.02; // Shorter max distance (prevents muddying flat surfaces)
 
     // Controlled bloom for neon glows without washing out sky
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.0, 0.4, 0.85);
@@ -420,16 +434,18 @@ function init() {
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
 
-    // Better shadow resolution for cleaner look
-    dirLight.shadow.mapSize.width = 8192; // Higher resolution
-    dirLight.shadow.mapSize.height = 8192;
-    dirLight.shadow.camera.top = 300;
-    dirLight.shadow.camera.bottom = -300;
-    dirLight.shadow.camera.left = -300;
-    dirLight.shadow.camera.right = 300;
+    // Cinematic VSM soft shadows
+    dirLight.shadow.mapSize.width = window.location.search.includes('disable_ocean') ? 1024 : 4096; // 4K is plenty for VSM
+    dirLight.shadow.mapSize.height = window.location.search.includes('disable_ocean') ? 1024 : 4096;
+    dirLight.shadow.camera.top = 200;
+    dirLight.shadow.camera.bottom = -200;
+    dirLight.shadow.camera.left = -200;
+    dirLight.shadow.camera.right = 200;
     dirLight.shadow.camera.near = 0.1;
     dirLight.shadow.camera.far = 1000;
-    dirLight.shadow.bias = -0.0001; // Tweak to prevent shadow acne
+    dirLight.shadow.bias = -0.0005; // Negative bias prevents peter-panning
+    dirLight.shadow.radius = 8; // Blur radius for VSM
+    dirLight.shadow.blurSamples = 25; // High samples for buttery smooth edges
     scene.add(dirLight);
 
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4); // Subtle bounce light
@@ -707,36 +723,52 @@ function init() {
         const sky = new Sky();
         sky.scale.setScalar(450000);
 
-        const phi = THREE.MathUtils.degToRad(90 - 20); // Elevation
-        const theta = THREE.MathUtils.degToRad(180); // Azimuth
-        const sunPosition = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+        // Save references for animation
+        globalSky = sky;
+        globalDirLight = dirLight;
 
-        sky.material.uniforms['sunPosition'].value.copy(sunPosition);
+        // Function to update sun based on timeOfDay (Hours 0-24)
+        const updateSun = () => {
+            const phi = THREE.MathUtils.degToRad(90 - (timeOfDay - 6) * 15); // Elevation
+            const theta = THREE.MathUtils.degToRad(180); // Azimuth
+            const sunPosition = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
 
-        // Adjust scattering to match map vibe
-        if (currentMap === 'desert') {
-            sky.material.uniforms['turbidity'].value = 10;
-            sky.material.uniforms['rayleigh'].value = 3;
-            sky.material.uniforms['mieCoefficient'].value = 0.05;
-            sky.material.uniforms['mieDirectionalG'].value = 0.8;
-        } else {
-            sky.material.uniforms['turbidity'].value = 2; // Crisp air
-            sky.material.uniforms['rayleigh'].value = 1;
-            sky.material.uniforms['mieCoefficient'].value = 0.005;
-            sky.material.uniforms['mieDirectionalG'].value = 0.8;
-        }
+            sky.material.uniforms['sunPosition'].value.copy(sunPosition);
 
+            // Adjust scattering to match map vibe
+            if (currentMap === 'desert') {
+                sky.material.uniforms['turbidity'].value = 10;
+                sky.material.uniforms['rayleigh'].value = 3;
+                sky.material.uniforms['mieCoefficient'].value = 0.05;
+                sky.material.uniforms['mieDirectionalG'].value = 0.8;
+            } else {
+                sky.material.uniforms['turbidity'].value = 2; // Crisp air
+                sky.material.uniforms['rayleigh'].value = 1;
+                sky.material.uniforms['mieCoefficient'].value = 0.005;
+                sky.material.uniforms['mieDirectionalG'].value = 0.8;
+            }
+
+            // Sun light to match sky sun
+            dirLight.position.copy(sunPosition).multiplyScalar(100);
+
+            // Intensity peaks at noon, drops to 0 at night
+            const sunHeight = Math.max(0, Math.sin(THREE.MathUtils.degToRad((timeOfDay - 6) * 15)));
+            dirLight.intensity = 1.5 * sunHeight;
+
+            // PBR Reflections (Graphics V11) - Generate environment map from the Sky
+            if (!window.location.search.includes('disable_ocean')) {
+                try {
+                    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+                    pmremGenerator.compileEquirectangularShader();
+                    const renderTarget = pmremGenerator.fromScene(scene);
+                    scene.environment = renderTarget.texture;
+                    pmremGenerator.dispose();
+                } catch(e) { console.warn(e); }
+            }
+        };
+
+        updateSun(); // Initial call
         scene.add(sky);
-        // Sun light to match sky sun
-        dirLight.position.copy(sunPosition).multiplyScalar(100);
-        dirLight.intensity = 1.2; // Softer sun for dynamic sky maps
-
-        // PBR Reflections (Graphics V11) - Generate environment map from the Sky
-        const pmremGenerator = new THREE.PMREMGenerator(renderer);
-        pmremGenerator.compileEquirectangularShader();
-        const renderTarget = pmremGenerator.fromScene(scene);
-        scene.environment = renderTarget.texture;
-        pmremGenerator.dispose();
     }
 
     // If space, add stars
@@ -979,6 +1011,23 @@ function init() {
     });
     world.addBody(groundBody);
 
+    // Stylized Ocean for Island map (Graphics V12)
+    if (currentMap === 'island') {
+        const oceanSize = 250; // Much smaller ocean size to avoid massive CPU overhead in JS and playwright
+        const oceanSegs = 16; // Fewer segments for performance
+        const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, oceanSegs, oceanSegs);
+        oceanGeo.rotateX(-Math.PI / 2);
+
+        const oceanMat = new THREE.MeshStandardMaterial({
+            color: 0x006699, roughness: 0.1, metalness: 0.8,
+            transparent: true, opacity: 0.8, flatShading: true
+        });
+        oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+        oceanMesh.position.y = -5; // Sink below the island
+        oceanMesh.receiveShadow = true;
+        scene.add(oceanMesh);
+    }
+
     // Death plane for falling off
     world.addEventListener('postStep', () => {
         if (playerBody.position.y < -20) {
@@ -1165,6 +1214,22 @@ function createTracer(startPoint, endPoint) {
     tracers.push({ mesh: line, life: 1.0 }); // Life from 1 to 0
 }
 
+// Shockwaves
+let shockwaves = [];
+const shockwaveGeo = new THREE.TorusGeometry(0.5, 0.1, 8, 24);
+
+function createShockwave(position, normal) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 1.0, depthWrite: false });
+    const mesh = new THREE.Mesh(shockwaveGeo, mat);
+    mesh.position.copy(position);
+    // Align with surface normal
+    if (normal) {
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    }
+    scene.add(mesh);
+    shockwaves.push({ mesh: mesh, life: 1.0 });
+}
+
 function createParticles(position, type = 'spark', count = 10) {
     for (let i = 0; i < count; i++) {
         const mesh = new THREE.Mesh(
@@ -1285,8 +1350,9 @@ function shoot() {
         const hitMesh = hit.object;
         hitPoint = hit.point;
 
-        // Spawn sparks at hit point
+        // Spawn sparks & shockwave at hit point
         createParticles(hit.point, 'spark', 5);
+        if (hit.face) createShockwave(hit.point, hit.face.normal);
 
         if (hitMesh.userData) {
             if (hitMesh.userData.isPlayer) {
@@ -1528,6 +1594,55 @@ function animate() {
             activeGroundMesh.material.map.offset.x += delta * 0.02;
         } else if (currentMap === 'space') {
             activeGroundMesh.material.map.offset.y += delta * 0.02; // Moving space grid
+        }
+    }
+
+    // Stylized Ocean Animation
+    // Only animate a subset or optimize it to prevent massive slowdown on 1000x1000 high-poly grid
+    if (oceanMesh && oceanMesh.visible && !window.location.search.includes('disable_ocean')) {
+        // Disable computeVertexNormals every frame in playwright as it can crash the screenshotting tool on large arrays
+        const positions = oceanMesh.geometry.attributes.position.array;
+        // Optimization: only update vertices somewhat near the player (e.g. within 200 units)
+        const pX = camera.position.x;
+        const pZ = camera.position.z;
+        for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const z = positions[i+2];
+            if (Math.abs(x - pX) < 200 && Math.abs(z - pZ) < 200) {
+                positions[i+1] = Math.sin((x * 0.05) + time * 0.001) * 2 + Math.cos((z * 0.05) + time * 0.002) * 2 - 5;
+            }
+        }
+        oceanMesh.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // Time of Day Animation (Dynamic Sun)
+    if (globalSky && globalDirLight) {
+        timeOfDay += delta * 0.2; // Speed of day cycle
+        if (timeOfDay > 24) timeOfDay = 0;
+
+        const phi = THREE.MathUtils.degToRad(90 - (timeOfDay - 6) * 15);
+        const theta = THREE.MathUtils.degToRad(180);
+        const sunPosition = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
+
+        globalSky.material.uniforms['sunPosition'].value.copy(sunPosition);
+        globalDirLight.position.copy(sunPosition).multiplyScalar(100);
+
+        const sunHeight = Math.max(0, Math.sin(THREE.MathUtils.degToRad((timeOfDay - 6) * 15)));
+        globalDirLight.intensity = 1.5 * sunHeight;
+
+        // Note: We don't update PMREM every frame as it's too expensive,
+        // so reflections stay static while lighting/shadows move dynamically.
+    }
+
+    // Update Shockwaves
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+        let sw = shockwaves[i];
+        sw.life -= delta * 3.0; // Fade speed
+        sw.mesh.scale.addScalar(delta * 15.0); // Expand speed
+        sw.mesh.material.opacity = sw.life;
+        if (sw.life <= 0) {
+            scene.remove(sw.mesh);
+            shockwaves.splice(i, 1);
         }
     }
 

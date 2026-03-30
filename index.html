@@ -240,7 +240,12 @@
                 </select>
             </div>
 
-            <div style="display: flex; gap: 10px; width: 100%;">
+            <div style="margin-bottom: 20px; text-align: center;">
+                <label style="font-size: 18px; color: #ccc; margin-bottom: 5px; display: block;">Lobby Code (Leave blank for Public Matchmaking)</label>
+                <input type="text" id="lobbyCodeInput" placeholder="Public Matchmaking" style="padding: 10px 15px; font-size: 20px; font-family: 'Teko', sans-serif; font-weight: 600; border-radius: 5px; border: 2px solid #555; background: rgba(0,0,0,0.5); color: #fff; width: 80%; max-width: 300px; text-align: center; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='#00ffcc'" onblur="this.style.borderColor='#555'">
+            </div>
+
+            <div style="display: flex; gap: 10px; width: 100%; justify-content: center;">
                 <button id="playBtn" class="menu-btn">Drop In</button>
                 <button id="spectateBtn" class="menu-btn" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid #555;">Spectate</button>
             </div>

@@ -26,7 +26,8 @@ function addPrebuilt(type, x, y, z, rotation, mapName) {
         rotation: rotation,
         health: 500, // Pre-built objects have more health
         ownerId: 'server',
-        map: mapName
+        map: mapName,
+        lobby: 'public' // Pre-built objects exist in the public lobby by default
     };
 }
 
@@ -110,7 +111,8 @@ io.on('connection', (socket) => {
         map: 'classic', // default map
         kills: 0,
         deaths: 0,
-        isSpectator: false
+        isSpectator: false,
+        lobby: 'public' // default lobby
     };
 
     // Send current game state to the new player
@@ -127,12 +129,26 @@ io.on('connection', (socket) => {
     socket.on('joinMap', (data) => {
         const mapName = typeof data === 'string' ? data : data.map;
         const isSpectator = typeof data === 'object' ? data.isSpectator : false;
+        const lobby = typeof data === 'object' ? data.lobby : 'public';
+
+        // Handle custom lobby prebuilt generation
+        if (lobby !== 'public' && !Object.values(builtObjects).find(o => o.lobby === lobby)) {
+            // Very simple approach: just copy the prebuilts over to the new lobby
+            const currentPrebuilts = Object.values(builtObjects).filter(o => o.lobby === 'public' && o.ownerId === 'server');
+            for(let p of currentPrebuilts) {
+                const objId = `prebuilt_${objectIdCounter++}`;
+                builtObjects[objId] = { ...p, id: objId, lobby: lobby };
+            }
+        }
 
         players[socket.id].map = mapName;
         players[socket.id].isSpectator = isSpectator;
-        // Broadcast that they joined a specific map
-        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator });
+        players[socket.id].lobby = lobby;
 
+        // Broadcast that they joined a specific map
+        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator, lobby: lobby });
+
+        // Broadcast all players, let client filter. Otherwise other lobbies will get their boards wiped by this filtered list
         io.emit('leaderboardUpdate', Object.values(players));
     });
 
@@ -189,7 +205,8 @@ io.on('connection', (socket) => {
             rotation: data.rotation,
             health: 100,
             ownerId: socket.id,
-            map: players[socket.id].map
+            map: players[socket.id].map,
+            lobby: players[socket.id].lobby
         };
 
         builtObjects[objId] = newObj;
