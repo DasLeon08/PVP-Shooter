@@ -620,15 +620,28 @@ function init() {
     const sgRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.1), sgNeonMat); sgRail.position.set(0, 0.05, 0);
     sgMesh.add(sgReceiver, sgBarrel1, sgBarrel2, sgStock, sgGrip, sgRail);
 
-    // Muzzle Flash light
-    const muzzleFlash = new THREE.PointLight(0xffffff, 0, 5);
-    muzzleFlash.position.set(0, 0.02, -0.75);
-    muzzleFlash.name = "muzzleFlash";
+    // Muzzle Flash Visuals (V11)
+    const flashGroup = new THREE.Group();
+    flashGroup.position.set(0, 0.02, -0.75);
+    flashGroup.name = "muzzleFlash";
+    const flashLight = new THREE.PointLight(0xffaa00, 0, 5);
+    flashGroup.add(flashLight);
+
+    // Starburst geometry
+    const burstGeo = new THREE.PlaneGeometry(0.3, 0.3);
+    const burstMat = new THREE.MeshBasicMaterial({
+        color: 0xffdd88, transparent: true, opacity: 0,
+        side: THREE.DoubleSide, depthWrite: false, map: null // Would ideally be a texture
+    });
+    const burst1 = new THREE.Mesh(burstGeo, burstMat); burst1.rotation.y = Math.PI/2;
+    const burst2 = new THREE.Mesh(burstGeo, burstMat); burst2.rotation.y = Math.PI/2; burst2.rotation.x = Math.PI/4;
+    const burst3 = new THREE.Mesh(burstGeo, burstMat); burst3.rotation.y = Math.PI/2; burst3.rotation.x = -Math.PI/4;
+    flashGroup.add(burst1, burst2, burst3);
 
     gunMesh.add(arMesh);
     gunMesh.add(smgMesh);
     gunMesh.add(sgMesh);
-    gunMesh.add(muzzleFlash);
+    gunMesh.add(flashGroup);
 
     // Default to AR
     arMesh.visible = true;
@@ -717,6 +730,13 @@ function init() {
         // Sun light to match sky sun
         dirLight.position.copy(sunPosition).multiplyScalar(100);
         dirLight.intensity = 1.2; // Softer sun for dynamic sky maps
+
+        // PBR Reflections (Graphics V11) - Generate environment map from the Sky
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        const renderTarget = pmremGenerator.fromScene(scene);
+        scene.environment = renderTarget.texture;
+        pmremGenerator.dispose();
     }
 
     // If space, add stars
@@ -764,8 +784,10 @@ function init() {
     }
     if (currentMap === 'lava') dirLight.color.setHex(0xffaa55);
 
-    // Instead of realistic env map, use a simple ambient/hemisphere mix
-    scene.environment = null;
+    // Only nullify environment if we aren't using the dynamic sky
+    if (currentMap === 'space' || currentMap === 'platform' || currentMap === 'lava') {
+        scene.environment = null;
+    }
     hemiLight.color.setHex(skyColor);
     hemiLight.groundColor.setHex(groundColor);
     hemiLight.intensity = (currentMap === 'space' || currentMap === 'lava') ? 0.3 : 0.9;
@@ -850,9 +872,41 @@ function init() {
     groundTex.magFilter = THREE.NearestFilter;
     groundTex.minFilter = THREE.NearestMipmapLinearFilter;
 
-    // We can use the same canvas to generate a crude bump map based on brightness.
-    // For a real game, you'd draw a separate bump map. For here, using the color map
-    // as a bump map works well enough because lines are bright (high) and bases are dark (low).
+    // Procedural PBR Roughness/Metalness Map (V11)
+    // We'll create a dedicated texture to map specular reflections realistically.
+    const pbrCanvas = document.createElement('canvas');
+    pbrCanvas.width = 512; pbrCanvas.height = 512;
+    const pbrCtx = pbrCanvas.getContext('2d');
+
+    // Default: rough
+    pbrCtx.fillStyle = '#FFFFFF'; // White = 1.0 roughness
+    pbrCtx.fillRect(0,0,512,512);
+
+    if (currentMap === 'city' || currentMap === 'platform') {
+        // Concrete with wet shiny puddles
+        for(let i=0; i<30; i++) {
+            pbrCtx.fillStyle = '#111111'; // Black = 0 roughness (very shiny)
+            pbrCtx.beginPath();
+            pbrCtx.ellipse(Math.random()*512, Math.random()*512, 20+Math.random()*50, 10+Math.random()*30, Math.random()*Math.PI, 0, Math.PI*2);
+            pbrCtx.fill();
+        }
+    } else if (currentMap === 'lava') {
+        // Glowing lava is smooth (shiny), crust is rough
+        pbrCtx.fillStyle = '#111111'; // Shiny magma
+        pbrCtx.fillRect(0,0,512,512);
+        for(let i=0; i<50; i++) {
+            pbrCtx.fillStyle = '#FFFFFF'; // Rough crust
+            pbrCtx.beginPath(); pbrCtx.arc(Math.random()*512, Math.random()*512, 20+Math.random()*50, 0, Math.PI*2); pbrCtx.fill();
+        }
+    } else if (currentMap === 'space') {
+        // Metal is generally smooth
+        pbrCtx.fillStyle = '#444444';
+        pbrCtx.fillRect(0,0,512,512);
+    }
+
+    const roughnessTex = new THREE.CanvasTexture(pbrCanvas);
+    roughnessTex.wrapS = THREE.RepeatWrapping; roughnessTex.wrapT = THREE.RepeatWrapping;
+    roughnessTex.repeat.set(groundSize / GRID_SIZE, groundSize / GRID_SIZE);
 
     // Topography generation (Graphics V10)
     // We use a high-segment plane to allow vertex displacement
@@ -890,8 +944,9 @@ function init() {
         map: groundTex,
         bumpMap: groundTex,
         bumpScale: currentMap === 'lava' ? 0.2 : 0.02,
-        roughness: (currentMap === 'lava' || currentMap === 'space') ? 0.4 : 1.0,
-        metalness: currentMap === 'space' ? 0.8 : 0.0,
+        roughnessMap: roughnessTex,
+        roughness: 1.0,
+        metalness: currentMap === 'space' ? 0.8 : 0.1, // Little base metalness so puddles reflect sky
         flatShading: true,
         emissive: currentMap === 'lava' ? 0x661100 : 0x000000,
         emissiveMap: currentMap === 'lava' ? groundTex : null
@@ -1099,6 +1154,17 @@ function spawnBuildingFromServer(data) {
     builtObjects.push({ mesh, body, id: data.id });
 }
 
+// Tracers
+let tracers = [];
+
+function createTracer(startPoint, endPoint) {
+    const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+    const geometry = new THREE.BufferGeometry().setFromPoints([startPoint, endPoint]);
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+    tracers.push({ mesh: line, life: 1.0 }); // Life from 1 to 0
+}
+
 function createParticles(position, type = 'spark', count = 10) {
     for (let i = 0; i < count; i++) {
         const mesh = new THREE.Mesh(
@@ -1168,18 +1234,37 @@ function shoot() {
     gunMesh.position.z = baseGunPosition.z + kickback; // Kickback
     gunMesh.rotation.x = muzzleClimb; // Upward muzzle climb
 
-    const flash = gunMesh.getObjectByName("muzzleFlash");
-    if (flash) flash.intensity = 15;
+    const flashGroup = gunMesh.getObjectByName("muzzleFlash");
+    if (flashGroup) {
+        flashGroup.children[0].intensity = 15; // Light
+        // Randomize starburst rotation and increase opacity
+        for(let i=1; i<=3; i++) {
+            flashGroup.children[i].material.opacity = 1;
+            flashGroup.children[i].rotation.z = Math.random() * Math.PI;
+            flashGroup.children[i].scale.setScalar(1 + Math.random()*0.5);
+        }
+    }
 
     setTimeout(() => {
         gunMesh.position.z = baseGunPosition.z;
         gunMesh.rotation.x = 0;
-        if (flash) flash.intensity = 0;
-    }, 100);
+        if (flashGroup) {
+            flashGroup.children[0].intensity = 0;
+            for(let i=1; i<=3; i++) flashGroup.children[i].material.opacity = 0;
+        }
+    }, 50); // Faster muzzle flash
 
     const raycaster = new THREE.Raycaster();
     const center = new THREE.Vector2(0, 0); // crosshair center
     raycaster.setFromCamera(center, camera);
+
+    // Get origin of shot for tracers (roughly barrel position)
+    const barrelPos = new THREE.Vector3(0, -0.1, -1);
+    barrelPos.unproject(camera); // Convert from NDC back to world space roughly based on camera
+    // A better approach is to take camera position and push it forward
+    const shotOrigin = camera.position.clone().add(raycaster.ray.direction.clone().multiplyScalar(0.5));
+    shotOrigin.y -= 0.1; // Offset down to match gun visually
+    shotOrigin.x += 0.1;
 
     // Objects to shoot: built objects AND other players
     const objectsToHit = builtObjects.map(obj => obj.mesh);
@@ -1193,9 +1278,12 @@ function shoot() {
     document.getElementById('crosshair').style.backgroundColor = 'red';
     setTimeout(() => { document.getElementById('crosshair').style.backgroundColor = 'transparent'; }, 50);
 
+    let hitPoint = raycaster.ray.at(100, new THREE.Vector3()); // Default tracer end if no hit
+
     if (intersects.length > 0) {
         const hit = intersects[0];
         const hitMesh = hit.object;
+        hitPoint = hit.point;
 
         // Spawn sparks at hit point
         createParticles(hit.point, 'spark', 5);
@@ -1212,6 +1300,9 @@ function shoot() {
             }
         }
     }
+
+    // Always draw tracer
+    createTracer(shotOrigin, hitPoint);
 }
 
 function destroyBuilding(mesh) {
@@ -1437,6 +1528,16 @@ function animate() {
             activeGroundMesh.material.map.offset.x += delta * 0.02;
         } else if (currentMap === 'space') {
             activeGroundMesh.material.map.offset.y += delta * 0.02; // Moving space grid
+        }
+    }
+
+    // Update Tracers
+    for (let i = tracers.length - 1; i >= 0; i--) {
+        tracers[i].life -= delta * 15; // Fade fast
+        tracers[i].mesh.material.opacity = tracers[i].life;
+        if (tracers[i].life <= 0) {
+            scene.remove(tracers[i].mesh);
+            tracers.splice(i, 1);
         }
     }
 
