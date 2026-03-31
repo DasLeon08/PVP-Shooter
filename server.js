@@ -13,20 +13,25 @@ app.use(express.static('./'));
 const players = {};
 const builtObjects = {};
 const weaponSpawns = {};
+const bots = {}; // AI Zombies
 const lobbies = {
     'public': {
         id: 'public',
-        mode: 'ffa', // ffa, br, zonewars
+        mode: 'ffa', // ffa, br, zonewars, pve
         state: 'playing', // waiting, playing, ended
+        maxHealth: 100,
         stormRadius: 1000,
         stormCenter: { x: 0, z: 0 },
         stormPhase: 0,
         nextStormUpdate: 0,
-        playersAlive: 0
+        playersAlive: 0,
+        currentWave: 0,
+        botsAlive: 0
     }
 };
 let objectIdCounter = 0;
 let weaponIdCounter = 0;
+let botIdCounter = 0;
 
 // Pre-fill maps with some default structures
 const GRID_SIZE = 5;
@@ -203,6 +208,21 @@ addPrebuilt('wall', -2.5, 2.5, 0, Math.PI/2, 'moon_base');
 addWeaponSpawn('ar', 0, 6, 0, 'moon_base');
 addWeaponSpawn('pistol', 10, 0.5, 10, 'moon_base');
 
+// Map: Canyon
+addPrebuilt('ramp', 0, 2.5, -5, 0, 'canyon');
+addPrebuilt('wall', 0, 7.5, -5, 0, 'canyon');
+addPrebuilt('wall', 5, 7.5, 0, Math.PI/2, 'canyon');
+addWeaponSpawn('sniper', 0, 10, 0, 'canyon');
+addWeaponSpawn('ar', 5, 0.5, -5, 'canyon');
+
+// Map: Neon City
+addPrebuilt('floor', 0, 5, 0, 0, 'neon_city');
+addPrebuilt('floor', 5, 5, 0, 0, 'neon_city');
+addPrebuilt('floor', 0, 10, 0, 0, 'neon_city');
+addPrebuilt('ramp', 0, 7.5, 5, Math.PI, 'neon_city');
+addWeaponSpawn('smg', 0, 11, 0, 'neon_city');
+addWeaponSpawn('shotgun', 5, 6, 0, 'neon_city');
+
 io.on('connection', (socket) => {
     console.log(`[+] Player connected: ${socket.id}`);
 
@@ -249,7 +269,9 @@ io.on('connection', (socket) => {
                 stormCenter: { x: 0, z: 0 },
                 stormPhase: 0,
                 nextStormUpdate: Date.now() + 10000, // 10s wait before game starts
-                playersAlive: 0
+                playersAlive: 0,
+                currentWave: 0,
+                botsAlive: 0
             };
 
             // Copy prebuilts
@@ -270,6 +292,11 @@ io.on('connection', (socket) => {
         // If joining an active BR/ZoneWars, force spectate
         if (lobbies[lobbyId].state === 'playing' && (lobbies[lobbyId].mode === 'br' || lobbies[lobbyId].mode === 'zonewars')) {
             isSpectator = true;
+        }
+
+        // PVE: Drop in with full health
+        if (lobbies[lobbyId].mode === 'pve') {
+            isSpectator = false;
         }
 
         players[socket.id].map = mapName;
@@ -300,6 +327,24 @@ io.on('connection', (socket) => {
     socket.on('playerHit', (data) => {
         const targetId = data.targetId;
         const damage = data.damage || 35; // Weapon damage
+
+        // PVE Bot Hit
+        if (bots[targetId] && players[socket.id]) {
+            bots[targetId].health -= damage;
+            if (bots[targetId].health <= 0) {
+                players[socket.id].kills += 1;
+                io.emit('playerDied', { id: targetId, killerId: socket.id });
+                delete bots[targetId];
+                const lobbyId = players[socket.id].lobby;
+                if (lobbies[lobbyId]) {
+                    lobbies[lobbyId].botsAlive--;
+                    io.emit('lobbyStateUpdate', lobbies[lobbyId]);
+                }
+                io.emit('botDestroyed', { id: targetId });
+                io.emit('leaderboardUpdate', Object.values(players));
+            }
+            return;
+        }
 
         if (players[targetId] && !players[targetId].isSpectator && players[socket.id] && !players[socket.id].isSpectator) {
             players[targetId].health -= damage;
@@ -428,8 +473,77 @@ setInterval(() => {
     // Process Lobbies (Storm logic and BR States)
     for (const lId in lobbies) {
         const lobby = lobbies[lId];
-        if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
-            const playersInLobby = Object.values(players).filter(p => p.lobby === lId && !p.isSpectator);
+        const playersInLobby = Object.values(players).filter(p => p.lobby === lId && !p.isSpectator);
+
+        if (lobby.mode === 'pve') {
+            if (playersInLobby.length > 0) {
+                if (lobby.botsAlive <= 0) {
+                    lobby.currentWave++;
+                    const botsToSpawn = lobby.currentWave * 3;
+                    lobby.botsAlive = botsToSpawn;
+
+                    for (let i=0; i<botsToSpawn; i++) {
+                        const bId = `bot_${botIdCounter++}`;
+                        bots[bId] = {
+                            id: bId,
+                            lobby: lId,
+                            x: (Math.random() - 0.5) * 60,
+                            y: 5,
+                            z: (Math.random() - 0.5) * 60,
+                            rotation: 0,
+                            health: 50 + (lobby.currentWave * 10), // scales up
+                            speed: 2 + (lobby.currentWave * 0.5)
+                        };
+                    }
+                    io.emit('lobbyStateUpdate', lobby);
+                }
+
+                // Bot AI Logic
+                const botsInLobby = Object.values(bots).filter(b => b.lobby === lId);
+                botsInLobby.forEach(b => {
+                    // Find nearest player
+                    let nearestPlayer = null;
+                    let minDist = Infinity;
+                    playersInLobby.forEach(p => {
+                        const dist = Math.sqrt(Math.pow(p.x - b.x, 2) + Math.pow(p.z - b.z, 2));
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearestPlayer = p;
+                        }
+                    });
+
+                    if (nearestPlayer) {
+                        // Move towards player
+                        const dx = nearestPlayer.x - b.x;
+                        const dz = nearestPlayer.z - b.z;
+                        const angle = Math.atan2(dx, dz);
+
+                        if (minDist > 1.5) {
+                            // Move
+                            b.x += Math.sin(angle) * (b.speed / 20);
+                            b.z += Math.cos(angle) * (b.speed / 20);
+                            b.rotation = angle;
+                        } else {
+                            // Attack
+                            if (Math.random() < 0.1) { // Random chance to attack per tick
+                                nearestPlayer.health -= 15;
+                                io.emit('playerHealthUpdate', { id: nearestPlayer.id, health: nearestPlayer.health });
+
+                                if (nearestPlayer.health <= 0) {
+                                    nearestPlayer.deaths++;
+                                    io.emit('playerDied', { id: nearestPlayer.id, killerId: b.id });
+                                    nearestPlayer.health = lobby.maxHealth || 100;
+                                    nearestPlayer.x = 0; nearestPlayer.y = 5; nearestPlayer.z = 0;
+                                    io.emit('playerRespawn', nearestPlayer);
+                                }
+                            }
+                        }
+                    }
+                });
+
+                io.emit('botsUpdate', botsInLobby);
+            }
+        } else if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
             lobby.playersAlive = playersInLobby.length;
 
             if (lobby.state === 'waiting') {

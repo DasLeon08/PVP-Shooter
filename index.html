@@ -294,6 +294,14 @@
                         <div class="map-name" style="font-size: 20px;">Moon Base</div>
                         <div class="map-desc" style="font-size: 14px;">Lunar Desolation</div>
                     </div>
+                    <div class="map-card" data-map="canyon">
+                        <div class="map-name" style="font-size: 20px;">Canyon</div>
+                        <div class="map-desc" style="font-size: 14px;">Red Ravines</div>
+                    </div>
+                    <div class="map-card" data-map="neon_city">
+                        <div class="map-name" style="font-size: 20px;">Neon City</div>
+                        <div class="map-desc" style="font-size: 14px;">High-Altitude Synthwave</div>
+                    </div>
                 </div>
                 <!-- Hidden select to maintain compatibility with main.js -->
                 <select id="mapSelect" style="display: none;">
@@ -309,6 +317,8 @@
                     <option value="br_island">BR Island</option>
                     <option value="cyber_city">Cyber City</option>
                     <option value="moon_base">Moon Base</option>
+                    <option value="canyon">Canyon</option>
+                    <option value="neon_city">Neon City</option>
                 </select>
             </div>
 
@@ -320,6 +330,7 @@
                             <option value="ffa" selected>Free For All</option>
                             <option value="br">Battle Royale</option>
                             <option value="zonewars">Zone Wars</option>
+                            <option value="pve">Co-op PvE Zombies</option>
                         </select>
                     </div>
                     <div>
@@ -369,6 +380,8 @@
         <div id="interactionText" style="display: none; color: yellow; font-size: 18px; margin-top: 5px;">Press E to Pickup</div>
         <div id="stormStatus" style="display: none; color: #cc00ff; font-weight: bold; margin-top: 10px; font-size: 22px;">Safe Zone Shrinking</div>
         <div id="playersAlive" style="display: none; font-size: 18px; color: #fff; margin-top: 5px;">Players Alive: <span id="aliveCount">0</span></div>
+        <div id="waveStatus" style="display: none; color: #ff0044; font-weight: bold; margin-top: 10px; font-size: 22px;">Wave: <span id="waveCount">0</span></div>
+        <div id="botsAlive" style="display: none; font-size: 18px; color: #fff; margin-top: 5px;">Zombies Remaining: <span id="botCount">0</span></div>
     </div>
 
     <div id="healthBarContainer" style="display: none;">

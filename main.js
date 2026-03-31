@@ -9,6 +9,8 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
+import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
+import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 
 // --- Globals ---
 let camera, scene, renderer, composer;
@@ -18,6 +20,7 @@ let playerBody;
 let socket;
 let myId;
 let otherPlayers = {}; // To store meshes of other players
+let botsLocal = {}; // AI Zombies
 let currentMap = 'classic';
 let health = 100;
 
@@ -396,8 +399,21 @@ function initNetwork() {
         const statusEl = document.getElementById('stormStatus');
         const aliveEl = document.getElementById('playersAlive');
         const aliveCount = document.getElementById('aliveCount');
+        const waveStatus = document.getElementById('waveStatus');
+        const waveCount = document.getElementById('waveCount');
+        const botsStatus = document.getElementById('botsAlive');
+        const botCount = document.getElementById('botCount');
 
-        if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
+        if (lobby.mode === 'pve') {
+            statusEl.style.display = 'none';
+            aliveEl.style.display = 'none';
+            waveStatus.style.display = 'block';
+            botsStatus.style.display = 'block';
+            waveCount.innerText = lobby.currentWave;
+            botCount.innerText = lobby.botsAlive;
+        } else if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
+            waveStatus.style.display = 'none';
+            botsStatus.style.display = 'none';
             statusEl.style.display = 'block';
             aliveEl.style.display = 'block';
 
@@ -437,6 +453,63 @@ function initNetwork() {
         } else {
             statusEl.style.display = 'none';
             aliveEl.style.display = 'none';
+            waveStatus.style.display = 'none';
+            botsStatus.style.display = 'none';
+        }
+    });
+
+    socket.on('botsUpdate', (botsData) => {
+        const currentIds = [];
+        botsData.forEach(b => {
+            currentIds.push(b.id);
+            if (!botsLocal[b.id]) {
+                const botGroup = new THREE.Group();
+                const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.4);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0x224422, roughness: 0.8 }); // Zombie green
+                const bBodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+                bBodyMesh.position.y = 0.6;
+                bBodyMesh.castShadow = true;
+
+                const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                const headMesh = new THREE.Mesh(headGeo, bodyMat);
+                headMesh.position.y = 1.45;
+                headMesh.castShadow = true;
+
+                const eyeGeo = new THREE.BoxGeometry(0.4, 0.1, 0.1);
+                const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
+                const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
+                eyeMesh.position.set(0, 1.45, -0.26);
+
+                const hitboxGeo = new THREE.BoxGeometry(1, 2, 1);
+                const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+                const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+                hitbox.position.y = 1;
+                hitbox.userData = { isBot: true, id: b.id };
+
+                botGroup.add(bBodyMesh, headMesh, eyeMesh, hitbox);
+                scene.add(botGroup);
+
+                botsLocal[b.id] = { group: botGroup, hitbox: hitbox };
+            }
+
+            botsLocal[b.id].group.position.set(b.x, b.y - 0.5, b.z);
+            botsLocal[b.id].group.rotation.y = b.rotation;
+        });
+
+        // Cleanup dead bots
+        for (let id in botsLocal) {
+            if (!currentIds.includes(id)) {
+                scene.remove(botsLocal[id].group);
+                delete botsLocal[id];
+            }
+        }
+    });
+
+    socket.on('botDestroyed', (data) => {
+        if (botsLocal[data.id]) {
+            createParticles(botsLocal[data.id].group.position, 'debris', 10);
+            scene.remove(botsLocal[data.id].group);
+            delete botsLocal[data.id];
         }
     });
 
@@ -712,6 +785,14 @@ function init() {
     fxaaPass.material.uniforms['resolution'].value.x = 1 / (window.innerWidth * pixelRatio);
     fxaaPass.material.uniforms['resolution'].value.y = 1 / (window.innerHeight * pixelRatio);
 
+    // FilmPass (Graphics V15) - Adds subtle cinematic noise/scanlines
+    const filmPass = new FilmPass(0.35, 0.025, 648, false);
+
+    // Vignette Pass (Graphics V15) - Darkens corners
+    const vignettePass = new ShaderPass(VignetteShader);
+    vignettePass.uniforms["offset"].value = 1.0;
+    vignettePass.uniforms["darkness"].value = 1.2;
+
     const outputPass = new OutputPass();
 
     composer = new EffectComposer(renderer, renderTarget);
@@ -719,6 +800,8 @@ function init() {
     composer.addPass(ssaoPass);
     composer.addPass(bloomPass);
     composer.addPass(fxaaPass);
+    composer.addPass(filmPass);
+    composer.addPass(vignettePass);
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
@@ -1082,6 +1165,18 @@ function init() {
         skyColor = 0x000000; // Space
         fogColor = 0x000000;
         fogDensity = 0.002;
+    } else if (currentMap === 'canyon') {
+        groundColor = 0xAA4422; // Red rock
+        groundSize = 400;
+        skyColor = 0xFF8844; // Dusty sunset
+        fogColor = 0xFF8844;
+        fogDensity = 0.005;
+    } else if (currentMap === 'neon_city') {
+        groundColor = 0x1A053A; // Deep synthwave purple
+        groundSize = 250;
+        skyColor = 0x2A004A; // Purple sky
+        fogColor = 0xFF00FF; // Magenta fog
+        fogDensity = 0.008;
     }
 
     scene.background = new THREE.Color(skyColor);
@@ -1169,6 +1264,8 @@ function init() {
         if (currentMap === 'forest' || currentMap === 'br_island') dustColor = 0x88CC88; // Leaves/pollen
         if (currentMap === 'cyber_city') dustColor = 0x00ffcc; // Neon rain
         if (currentMap === 'moon_base') dustColor = 0xaaaaaa; // Moon dust
+        if (currentMap === 'canyon') dustColor = 0xFF8844; // Sand
+        if (currentMap === 'neon_city') dustColor = 0xff00ff; // Neon specks
 
         const dustMat = new THREE.PointsMaterial({
             color: dustColor,
@@ -1190,7 +1287,7 @@ function init() {
     if (currentMap === 'lava') dirLight.color.setHex(0xffaa55);
 
     // Only nullify environment if we aren't using the dynamic sky
-    if (['space', 'platform', 'lava', 'cyber_city', 'moon_base'].includes(currentMap)) {
+    if (['space', 'platform', 'lava', 'cyber_city', 'moon_base', 'neon_city'].includes(currentMap)) {
         scene.environment = null;
     }
     hemiLight.color.setHex(skyColor);
@@ -1296,6 +1393,18 @@ function init() {
         for(let i=0; i<50; i++) {
             gctx.beginPath(); gctx.arc(Math.random()*512, Math.random()*512, 5+Math.random()*20, 0, Math.PI*2); gctx.fill();
         }
+    } else if (currentMap === 'canyon') {
+        gctx.fillStyle = '#AA4422'; gctx.fillRect(0,0,512,512);
+        gctx.strokeStyle = '#882211'; gctx.lineWidth = 15;
+        for(let y=0; y<512; y+=40) {
+            gctx.beginPath(); gctx.moveTo(0, y); gctx.lineTo(512, y); gctx.stroke();
+        }
+    } else if (currentMap === 'neon_city') {
+        gctx.fillStyle = '#1A053A'; gctx.fillRect(0,0,512,512);
+        gctx.strokeStyle = 'rgba(0, 255, 255, 0.4)'; gctx.lineWidth = 2;
+        gctx.strokeRect(0,0,512,512);
+        gctx.strokeStyle = 'rgba(255, 0, 255, 0.3)';
+        gctx.beginPath(); gctx.moveTo(0, 0); gctx.lineTo(512, 512); gctx.stroke();
     }
 
     const groundTex = new THREE.CanvasTexture(groundCanvas);
@@ -1380,6 +1489,10 @@ function init() {
             // Craters (inverted bumps)
             y = Math.sin(x * 0.1) * Math.sin(z * 0.1) * 3;
             if (y > 0) y *= 0.5; // Flatten the peaks, keep the craters deep
+        } else if (currentMap === 'canyon') {
+            // Deep ravines
+            y = Math.sin(x * 0.05) * 10;
+            if (y > 5) y = 5; // Flat top mesas
         }
 
         vertices[i+1] = y * flattenFactor;
@@ -1675,7 +1788,8 @@ function createParticles(position, type = 'spark', count = 10) {
             mesh: mesh,
             velocity: velocity,
             life: 1.0, // 1 second lifetime
-            decay: type === 'spark' ? 2.0 : 1.0 // Spark fades faster
+            decay: type === 'spark' ? 2.0 : 1.0, // Spark fades faster
+            gravity: type === 'debris' ? 9.8 : 2.0 // Debris falls faster
         });
     }
 }
@@ -1763,10 +1877,13 @@ function shoot() {
     shotOrigin.y -= 0.1; // Offset down to match gun visually
     shotOrigin.x += 0.1;
 
-    // Objects to shoot: built objects AND other players
+    // Objects to shoot: built objects, other players AND bots
     const objectsToHit = builtObjects.map(obj => obj.mesh);
     for (let id in otherPlayers) {
         objectsToHit.push(otherPlayers[id].hitbox);
+    }
+    for (let id in botsLocal) {
+        objectsToHit.push(botsLocal[id].hitbox);
     }
 
     const intersects = raycaster.intersectObjects(objectsToHit);
@@ -1787,8 +1904,8 @@ function shoot() {
         if (hit.face) createShockwave(hit.point, hit.face.normal);
 
         if (hitMesh.userData) {
-            if (hitMesh.userData.isPlayer) {
-                // Hit another player
+            if (hitMesh.userData.isPlayer || hitMesh.userData.isBot) {
+                // Hit another player or bot
                 socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: damage });
             } else if (hitMesh.userData.isBuilding) {
                 // Tell server we hit a building
@@ -2074,6 +2191,15 @@ function animate() {
         stormMesh.rotation.y += delta * 0.1;
     }
 
+    // Animate bots
+    for (let id in botsLocal) {
+        const bot = botsLocal[id];
+        // simple wobble
+        bot.group.children[0].position.y = 0.6 + Math.sin(time * 0.01) * 0.05;
+        bot.group.children[1].position.y = 1.45 + Math.sin(time * 0.01) * 0.05;
+        bot.group.children[2].position.y = 1.45 + Math.sin(time * 0.01) * 0.05;
+    }
+
     // Update Dust Particles
     if (dustParticles) {
         dustParticles.rotation.y += delta * 0.05;
@@ -2159,7 +2285,7 @@ function animate() {
         const p = particles[i];
 
         // Gravity
-        p.velocity.y -= 9.8 * delta;
+        p.velocity.y -= (p.gravity || 9.8) * delta;
 
         p.mesh.position.addScaledVector(p.velocity, delta);
         p.mesh.rotation.x += p.velocity.x * delta;
@@ -2168,7 +2294,7 @@ function animate() {
         p.life -= p.decay * delta;
 
         if (p.mesh.material === sparkMat) {
-             p.mesh.scale.setScalar(p.life); // Shrink sparks
+             p.mesh.scale.setScalar(Math.max(0, p.life)); // Shrink sparks
         }
 
         if (p.life <= 0 || p.mesh.position.y < -5) {
