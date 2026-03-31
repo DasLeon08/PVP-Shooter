@@ -7,6 +7,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 
 // --- Globals ---
 let camera, scene, renderer, composer;
@@ -104,15 +106,20 @@ const bumpTexture = new THREE.CanvasTexture(bumpCanvas);
 bumpTexture.wrapS = THREE.RepeatWrapping; bumpTexture.wrapT = THREE.RepeatWrapping;
 bumpTexture.repeat.set(1, 1);
 
-const buildMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
+const buildMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xeeeeff,
     map: gridTexture,
     bumpMap: bumpTexture,
     bumpScale: 0.05,
-    metalness: 0.7,
-    roughness: 0.2,
+    metalness: 0.9,
+    roughness: 0.1,
     transparent: true,
-    opacity: 0.95, // Almost solid, just a hint of light pass-through
+    opacity: 0.9, // Allow more light for transmission
+    transmission: 0.5, // Glass-like effect (Graphics V14)
+    ior: 1.5, // Index of refraction
+    thickness: 0.5,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
     emissive: 0x002222, // Subtle glow
     side: THREE.DoubleSide
 });
@@ -161,6 +168,109 @@ let prevTime = performance.now();
 let isSpectator = false;
 
 let currentLobby = '';
+
+// --- SHOP & CURRENCY SYSTEM ---
+let totalKills = parseInt(localStorage.getItem('fpsTotalKills')) || 0;
+let ownedPlayerSkins = JSON.parse(localStorage.getItem('fpsOwnedPlayerSkins')) || ['default'];
+let ownedWeaponSkins = JSON.parse(localStorage.getItem('fpsOwnedWeaponSkins')) || ['default'];
+let equippedPlayerSkin = localStorage.getItem('fpsEquippedPlayerSkin') || 'default';
+let equippedWeaponSkin = localStorage.getItem('fpsEquippedWeaponSkin') || 'default';
+
+const playerSkins = [
+    { id: 'default', name: 'Basic Red', price: 0, color: 0xff0044 },
+    { id: 'blue', name: 'Azure Blue', price: 10, color: 0x00aaff },
+    { id: 'gold', name: 'Solid Gold', price: 50, color: 0xffaa00 },
+    { id: 'cyber', name: 'Cyberpunk', price: 100, color: 0xcc00ff }
+];
+
+const weaponSkins = [
+    { id: 'default', name: 'Standard Grey', price: 0, color: 0x2A2A30 },
+    { id: 'neon', name: 'Neon Green', price: 20, color: 0x00ff00 },
+    { id: 'crimson', name: 'Crimson Red', price: 40, color: 0xaa0000 },
+    { id: 'darkmatter', name: 'Dark Matter', price: 200, color: 0x050505 }
+];
+
+function updateMenuKillsDisplay() {
+    const displays = document.querySelectorAll('#menuKillsDisplay, #shopBalanceDisplay');
+    displays.forEach(d => d.innerText = totalKills);
+}
+updateMenuKillsDisplay(); // Initial set
+
+function renderShop() {
+    const pGrid = document.getElementById('playerSkinsGrid');
+    const wGrid = document.getElementById('weaponSkinsGrid');
+
+    pGrid.innerHTML = '';
+    playerSkins.forEach(skin => {
+        const isOwned = ownedPlayerSkins.includes(skin.id);
+        const isEquipped = equippedPlayerSkin === skin.id;
+
+        const div = document.createElement('div');
+        div.className = `shop-item ${isOwned ? 'owned' : ''} ${isEquipped ? 'equipped' : ''}`;
+        div.innerHTML = `
+            <div class="item-name" style="color: #${skin.color.toString(16).padStart(6, '0')}">${skin.name}</div>
+            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Kills'}</div>
+        `;
+        div.onclick = () => {
+            if (isOwned) {
+                equippedPlayerSkin = skin.id;
+                localStorage.setItem('fpsEquippedPlayerSkin', skin.id);
+                renderShop();
+            } else if (totalKills >= skin.price) {
+                totalKills -= skin.price;
+                ownedPlayerSkins.push(skin.id);
+                equippedPlayerSkin = skin.id;
+                localStorage.setItem('fpsTotalKills', totalKills);
+                localStorage.setItem('fpsOwnedPlayerSkins', JSON.stringify(ownedPlayerSkins));
+                localStorage.setItem('fpsEquippedPlayerSkin', skin.id);
+                updateMenuKillsDisplay();
+                renderShop();
+            }
+        };
+        pGrid.appendChild(div);
+    });
+
+    wGrid.innerHTML = '';
+    weaponSkins.forEach(skin => {
+        const isOwned = ownedWeaponSkins.includes(skin.id);
+        const isEquipped = equippedWeaponSkin === skin.id;
+
+        const div = document.createElement('div');
+        div.className = `shop-item ${isOwned ? 'owned' : ''} ${isEquipped ? 'equipped' : ''}`;
+        div.innerHTML = `
+            <div class="item-name" style="color: #${skin.color.toString(16).padStart(6, '0')}">${skin.name}</div>
+            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Kills'}</div>
+        `;
+        div.onclick = () => {
+            if (isOwned) {
+                equippedWeaponSkin = skin.id;
+                localStorage.setItem('fpsEquippedWeaponSkin', skin.id);
+                renderShop();
+            } else if (totalKills >= skin.price) {
+                totalKills -= skin.price;
+                ownedWeaponSkins.push(skin.id);
+                equippedWeaponSkin = skin.id;
+                localStorage.setItem('fpsTotalKills', totalKills);
+                localStorage.setItem('fpsOwnedWeaponSkins', JSON.stringify(ownedWeaponSkins));
+                localStorage.setItem('fpsEquippedWeaponSkin', skin.id);
+                updateMenuKillsDisplay();
+                renderShop();
+            }
+        };
+        wGrid.appendChild(div);
+    });
+}
+
+document.getElementById('openShopBtn').addEventListener('click', () => {
+    document.getElementById('mainMenu').style.display = 'none';
+    document.getElementById('shopMenu').style.display = 'flex';
+    renderShop();
+});
+
+document.getElementById('closeShopBtn').addEventListener('click', () => {
+    document.getElementById('shopMenu').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'flex';
+});
 
 document.getElementById('playBtn').addEventListener('click', () => {
     isSpectator = false;
@@ -228,7 +338,13 @@ function initNetwork() {
     socket.on('initGame', (data) => {
         myId = data.socketId;
 
-        socket.emit('joinMap', { map: currentMap, isSpectator: isSpectator, lobby: currentLobby });
+        socket.emit('joinMap', {
+            map: currentMap,
+            isSpectator: isSpectator,
+            lobby: currentLobby,
+            playerSkin: equippedPlayerSkin,
+            weaponSkin: equippedWeaponSkin
+        });
 
         // Load existing buildings from the lobby
         const existingObjects = data.builtObjects;
@@ -333,16 +449,27 @@ function initNetwork() {
             if (!otherPlayers[id]) {
                 const playerGroup = new THREE.Group();
 
+                // Resolve skin color
+                let skinColor = 0xff0044; // default
+                let headColor = 0xff3333; // default
+                const skinSetting = p.playerSkin || 'default';
+                const foundSkin = playerSkins.find(s => s.id === skinSetting);
+                if (foundSkin) {
+                    skinColor = foundSkin.color;
+                    // Slightly lighter color for head
+                    headColor = new THREE.Color(skinColor).lerp(new THREE.Color(0xffffff), 0.2).getHex();
+                }
+
                 // Body
                 const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.4);
-                const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff0044, metalness: 0.6, roughness: 0.2 });
+                const bodyMat = new THREE.MeshStandardMaterial({ color: skinColor, metalness: 0.6, roughness: 0.2 });
                 const pBodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
                 pBodyMesh.position.y = 0.6; // Body rests on group origin (feet)
                 pBodyMesh.castShadow = true;
 
                 // Head
                 const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-                const headMat = new THREE.MeshStandardMaterial({ color: 0xff3333, metalness: 0.5, roughness: 0.5 });
+                const headMat = new THREE.MeshStandardMaterial({ color: headColor, metalness: 0.5, roughness: 0.5 });
                 const headMesh = new THREE.Mesh(headGeo, headMat);
                 headMesh.position.y = 1.45; // Top of body
                 headMesh.castShadow = true;
@@ -392,6 +519,15 @@ function initNetwork() {
         if (data.id === myId) {
             health = data.health;
             document.getElementById('healthBar').style.width = Math.max(0, health) + '%';
+        }
+    });
+
+    socket.on('playerDied', (data) => {
+        // If we got the kill, update our local total and save
+        if (data.killerId === myId) {
+            totalKills += 1;
+            localStorage.setItem('fpsTotalKills', totalKills);
+            updateMenuKillsDisplay();
         }
     });
 
@@ -489,12 +625,19 @@ function init() {
     bloomPass.strength = 0.5; // Modest glow
     bloomPass.radius = 0.3;
 
+    // FXAA Pass for smoothing out edges post-processing
+    const fxaaPass = new ShaderPass(FXAAShader);
+    const pixelRatio = renderer.getPixelRatio();
+    fxaaPass.material.uniforms['resolution'].value.x = 1 / (window.innerWidth * pixelRatio);
+    fxaaPass.material.uniforms['resolution'].value.y = 1 / (window.innerHeight * pixelRatio);
+
     const outputPass = new OutputPass();
 
     composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(renderScene);
     composer.addPass(ssaoPass);
     composer.addPass(bloomPass);
+    composer.addPass(fxaaPass);
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
 
     // --- LIGHTS ---
@@ -666,9 +809,14 @@ function init() {
     // --- WEAPONS SYSTEM ---
     gunMesh = new THREE.Group();
 
-    // Materials (Enhanced V9)
+    // Apply Weapon Skin colors
+    let wColor = 0x2A2A30; // default grey
+    const foundWSkin = weaponSkins.find(s => s.id === equippedWeaponSkin);
+    if (foundWSkin) wColor = foundWSkin.color;
+
+    // Materials (Enhanced V9 + Skins)
     const darkMetal = new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.2, metalness: 0.9, flatShading: true });
-    const greyPolymer = new THREE.MeshStandardMaterial({ color: 0x2A2A30, roughness: 0.6, metalness: 0.4, flatShading: true });
+    const greyPolymer = new THREE.MeshStandardMaterial({ color: wColor, roughness: 0.6, metalness: 0.4, flatShading: true });
 
     // Create AR Mesh
     const arMesh = new THREE.Group();
@@ -1721,7 +1869,16 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    if(composer) composer.setSize(window.innerWidth, window.innerHeight);
+    if(composer) {
+        composer.setSize(window.innerWidth, window.innerHeight);
+        // Need to find the fxaaPass. We can assume it's the 4th pass.
+        const fxaaPass = composer.passes.find(p => p.material && p.material.uniforms && p.material.uniforms.resolution);
+        if (fxaaPass) {
+            const pixelRatio = renderer.getPixelRatio();
+            fxaaPass.material.uniforms['resolution'].value.x = 1 / (window.innerWidth * pixelRatio);
+            fxaaPass.material.uniforms['resolution'].value.y = 1 / (window.innerHeight * pixelRatio);
+        }
+    }
 }
 
 function interactWithPickup() {

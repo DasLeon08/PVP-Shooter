@@ -207,9 +207,11 @@ io.on('connection', (socket) => {
         players[socket.id].map = mapName;
         players[socket.id].isSpectator = isSpectator;
         players[socket.id].lobby = lobby;
+        players[socket.id].playerSkin = typeof data === 'object' ? data.playerSkin : 'default';
+        players[socket.id].weaponSkin = typeof data === 'object' ? data.weaponSkin : 'default';
 
         // Broadcast that they joined a specific map
-        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator, lobby: lobby });
+        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator, lobby: lobby, playerSkin: players[socket.id].playerSkin, weaponSkin: players[socket.id].weaponSkin });
 
         // Broadcast all players, let client filter. Otherwise other lobbies will get their boards wiped by this filtered list
         io.emit('leaderboardUpdate', Object.values(players));
