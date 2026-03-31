@@ -13,6 +13,18 @@ app.use(express.static('./'));
 const players = {};
 const builtObjects = {};
 const weaponSpawns = {};
+const lobbies = {
+    'public': {
+        id: 'public',
+        mode: 'ffa', // ffa, br, zonewars
+        state: 'playing', // waiting, playing, ended
+        stormRadius: 1000,
+        stormCenter: { x: 0, z: 0 },
+        stormPhase: 0,
+        nextStormUpdate: 0,
+        playersAlive: 0
+    }
+};
 let objectIdCounter = 0;
 let weaponIdCounter = 0;
 
@@ -154,6 +166,43 @@ addWeaponSpawn('ar', 10, 0.5, 10, 'forest');
 addWeaponSpawn('shotgun', -10, 0.5, -10, 'forest');
 addWeaponSpawn('smg', -10, 0.5, 10, 'forest');
 
+// Map: BR Island (Massive map with many spawns, cover, and high terrain)
+for (let i = 0; i < 30; i++) {
+    const rX = (Math.random() - 0.5) * 400;
+    const rZ = (Math.random() - 0.5) * 400;
+    addPrebuilt('tree', rX, 0, rZ, Math.random() * Math.PI, 'br_island');
+}
+for (let i = 0; i < 15; i++) {
+    const rX = (Math.random() - 0.5) * 400;
+    const rZ = (Math.random() - 0.5) * 400;
+    addPrebuilt('rock', rX, 0, rZ, Math.random() * Math.PI, 'br_island');
+}
+// Scatter weapons globally
+const wepTypes = ['ar', 'shotgun', 'smg', 'sniper', 'pistol'];
+for (let i = 0; i < 40; i++) {
+    const rX = (Math.random() - 0.5) * 400;
+    const rZ = (Math.random() - 0.5) * 400;
+    const rWep = wepTypes[Math.floor(Math.random() * wepTypes.length)];
+    addWeaponSpawn(rWep, rX, 0.5, rZ, 'br_island');
+}
+
+// Map: Cyber City
+addPrebuilt('floor', 0, 5, 0, 0, 'cyber_city');
+addPrebuilt('wall', 0, 2.5, -5, 0, 'cyber_city');
+addPrebuilt('wall', 0, 7.5, -5, 0, 'cyber_city');
+addPrebuilt('wall', 0, 12.5, -5, 0, 'cyber_city');
+addPrebuilt('ramp', 0, 2.5, 0, Math.PI, 'cyber_city');
+addPrebuilt('floor', 0, 10, 0, 0, 'cyber_city');
+addWeaponSpawn('sniper', 0, 11, 0, 'cyber_city');
+addWeaponSpawn('smg', 5, 0.5, 5, 'cyber_city');
+
+// Map: Moon Base
+addPrebuilt('floor', 0, 5, 0, 0, 'moon_base');
+addPrebuilt('wall', 2.5, 2.5, 0, Math.PI/2, 'moon_base');
+addPrebuilt('wall', -2.5, 2.5, 0, Math.PI/2, 'moon_base');
+addWeaponSpawn('ar', 0, 6, 0, 'moon_base');
+addWeaponSpawn('pistol', 10, 0.5, 10, 'moon_base');
+
 io.on('connection', (socket) => {
     console.log(`[+] Player connected: ${socket.id}`);
 
@@ -184,34 +233,54 @@ io.on('connection', (socket) => {
     // Update player map selection
     socket.on('joinMap', (data) => {
         const mapName = typeof data === 'string' ? data : data.map;
-        const isSpectator = typeof data === 'object' ? data.isSpectator : false;
-        const lobby = typeof data === 'object' ? data.lobby : 'public';
+        let isSpectator = typeof data === 'object' ? data.isSpectator : false;
+        const lobbyId = typeof data === 'object' ? data.lobby : 'public';
+        const gameMode = typeof data === 'object' ? data.gameMode : 'ffa';
+        const maxHealth = typeof data === 'object' ? (data.maxHealth || 100) : 100;
 
-        // Handle custom lobby prebuilt generation
-        if (lobby !== 'public' && !Object.values(builtObjects).find(o => o.lobby === lobby)) {
-            // Very simple approach: just copy the prebuilts over to the new lobby
+        // Initialize Lobby if it doesn't exist
+        if (!lobbies[lobbyId]) {
+            lobbies[lobbyId] = {
+                id: lobbyId,
+                mode: gameMode,
+                maxHealth: maxHealth,
+                state: 'waiting',
+                stormRadius: 1000,
+                stormCenter: { x: 0, z: 0 },
+                stormPhase: 0,
+                nextStormUpdate: Date.now() + 10000, // 10s wait before game starts
+                playersAlive: 0
+            };
+
+            // Copy prebuilts
             const currentPrebuilts = Object.values(builtObjects).filter(o => o.lobby === 'public' && o.ownerId === 'server');
             for(let p of currentPrebuilts) {
                 const objId = `prebuilt_${objectIdCounter++}`;
-                builtObjects[objId] = { ...p, id: objId, lobby: lobby };
+                builtObjects[objId] = { ...p, id: objId, lobby: lobbyId };
             }
 
-            // Do the same for weapon spawns
+            // Copy spawns
             const currentSpawns = Object.values(weaponSpawns).filter(s => s.lobby === 'public');
             for(let s of currentSpawns) {
                 const spawnId = `weapon_${weaponIdCounter++}`;
-                weaponSpawns[spawnId] = { ...s, id: spawnId, lobby: lobby };
+                weaponSpawns[spawnId] = { ...s, id: spawnId, lobby: lobbyId };
             }
+        }
+
+        // If joining an active BR/ZoneWars, force spectate
+        if (lobbies[lobbyId].state === 'playing' && (lobbies[lobbyId].mode === 'br' || lobbies[lobbyId].mode === 'zonewars')) {
+            isSpectator = true;
         }
 
         players[socket.id].map = mapName;
         players[socket.id].isSpectator = isSpectator;
-        players[socket.id].lobby = lobby;
+        players[socket.id].lobby = lobbyId;
+        players[socket.id].health = lobbies[lobbyId].maxHealth || 100;
         players[socket.id].playerSkin = typeof data === 'object' ? data.playerSkin : 'default';
         players[socket.id].weaponSkin = typeof data === 'object' ? data.weaponSkin : 'default';
 
         // Broadcast that they joined a specific map
-        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator, lobby: lobby, playerSkin: players[socket.id].playerSkin, weaponSkin: players[socket.id].weaponSkin });
+        io.emit('playerMapUpdate', { id: socket.id, map: mapName, isSpectator, lobby: lobbyId, playerSkin: players[socket.id].playerSkin, weaponSkin: players[socket.id].weaponSkin });
 
         // Broadcast all players, let client filter. Otherwise other lobbies will get their boards wiped by this filtered list
         io.emit('leaderboardUpdate', Object.values(players));
@@ -242,14 +311,29 @@ io.on('connection', (socket) => {
                 if (players[socket.id]) players[socket.id].kills += 1;
 
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
-                players[targetId].health = 100; // Auto-respawn health
 
-                // Teleport to spawn (simple fix for now)
-                players[targetId].x = 0;
-                players[targetId].y = 5;
-                players[targetId].z = 0;
+                const lobbyId = players[targetId].lobby;
+                const lobby = lobbies[lobbyId];
 
-                io.emit('playerRespawn', players[targetId]);
+                // If BR or ZoneWars, they become a spectator
+                if (lobby && (lobby.mode === 'br' || lobby.mode === 'zonewars') && lobby.state === 'playing') {
+                    players[targetId].isSpectator = true;
+                    io.emit('playerMapUpdate', { id: targetId, map: players[targetId].map, isSpectator: true, lobby: lobbyId, playerSkin: players[targetId].playerSkin, weaponSkin: players[targetId].weaponSkin });
+
+                    // Decrease alive count
+                    lobby.playersAlive--;
+                    io.emit('lobbyStateUpdate', lobby);
+                } else {
+                    players[targetId].health = lobby ? lobby.maxHealth || 100 : 100; // Auto-respawn health
+
+                    // Teleport to spawn (simple fix for now)
+                    players[targetId].x = 0;
+                    players[targetId].y = 5;
+                    players[targetId].z = 0;
+
+                    io.emit('playerRespawn', players[targetId]);
+                }
+
                 io.emit('leaderboardUpdate', Object.values(players));
             } else {
                 // Broadcast health update
@@ -283,7 +367,9 @@ io.on('connection', (socket) => {
     // Handle Healing
     socket.on('useHeal', (data) => {
         if (players[socket.id] && !players[socket.id].isSpectator) {
-            players[socket.id].health = Math.min(100, players[socket.id].health + (data.amount || 25));
+            const lobbyId = players[socket.id].lobby;
+            const mHealth = lobbies[lobbyId] ? lobbies[lobbyId].maxHealth || 100 : 100;
+            players[socket.id].health = Math.min(mHealth, players[socket.id].health + (data.amount || 25));
             io.emit('playerHealthUpdate', { id: socket.id, health: players[socket.id].health });
         }
     });
@@ -336,6 +422,92 @@ setInterval(() => {
         if (!weaponSpawns[id].active && now >= weaponSpawns[id].respawnTime) {
             weaponSpawns[id].active = true;
             io.emit('weaponSpawnUpdate', { id: id, active: true });
+        }
+    }
+
+    // Process Lobbies (Storm logic and BR States)
+    for (const lId in lobbies) {
+        const lobby = lobbies[lId];
+        if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
+            const playersInLobby = Object.values(players).filter(p => p.lobby === lId && !p.isSpectator);
+            lobby.playersAlive = playersInLobby.length;
+
+            if (lobby.state === 'waiting') {
+                if (now > lobby.nextStormUpdate) {
+                    lobby.state = 'playing';
+                    lobby.stormPhase = 1;
+                    lobby.stormRadius = lobby.mode === 'zonewars' ? 80 : 300;
+                    lobby.nextStormUpdate = now + (lobby.mode === 'zonewars' ? 10000 : 30000);
+                    io.emit('lobbyStateUpdate', lobby);
+
+                    // Revive all waiting players
+                    playersInLobby.forEach(p => { p.health = lobby.maxHealth || 100; io.emit('playerRespawn', p); });
+                }
+            } else if (lobby.state === 'playing') {
+                if (now > lobby.nextStormUpdate) {
+                    lobby.stormPhase++;
+                    lobby.stormRadius *= 0.5; // Shrink zone by half
+
+                    // Move center slightly
+                    lobby.stormCenter.x += (Math.random() - 0.5) * lobby.stormRadius;
+                    lobby.stormCenter.z += (Math.random() - 0.5) * lobby.stormRadius;
+
+                    lobby.nextStormUpdate = now + (lobby.mode === 'zonewars' ? 15000 : 45000);
+                    io.emit('lobbyStateUpdate', lobby);
+                }
+
+                // Storm damage calculation
+                playersInLobby.forEach(p => {
+                    const dx = p.x - lobby.stormCenter.x;
+                    const dz = p.z - lobby.stormCenter.z;
+                    const distSq = dx*dx + dz*dz;
+                    if (distSq > lobby.stormRadius * lobby.stormRadius) {
+                        p.health -= 5; // 5 dps in storm
+                        if (p.health <= 0) {
+                            p.health = 0;
+                            p.isSpectator = true;
+                            p.deaths++;
+                            io.emit('playerMapUpdate', { id: p.id, map: p.map, isSpectator: true, lobby: lId, playerSkin: p.playerSkin, weaponSkin: p.weaponSkin });
+                        }
+                        io.emit('playerHealthUpdate', { id: p.id, health: p.health });
+                    }
+                });
+
+                // Check win condition
+                if (lobby.playersAlive <= 1) {
+                    lobby.state = 'ended';
+                    lobby.nextStormUpdate = now + 10000; // 10s until restart
+                    io.emit('lobbyStateUpdate', lobby);
+                }
+            } else if (lobby.state === 'ended') {
+                if (now > lobby.nextStormUpdate) {
+                    // Restart
+                    lobby.state = 'waiting';
+                    lobby.stormPhase = 0;
+                    lobby.nextStormUpdate = now + 10000;
+
+                    // Cleanup builds in this lobby
+                    for(let oId in builtObjects) {
+                        if (builtObjects[oId].lobby === lId && builtObjects[oId].ownerId !== 'server') {
+                            delete builtObjects[oId];
+                            io.emit('objectDestroyed', { objId: oId });
+                        }
+                    }
+
+                    // Revive everyone who was spectating but still connected
+                    Object.values(players).filter(p => p.lobby === lId).forEach(p => {
+                        p.isSpectator = false;
+                        p.health = lobby.maxHealth || 100;
+                        p.x = (Math.random() - 0.5) * 50;
+                        p.y = 20; // drop them
+                        p.z = (Math.random() - 0.5) * 50;
+                        io.emit('playerMapUpdate', { id: p.id, map: p.map, isSpectator: false, lobby: lId, playerSkin: p.playerSkin, weaponSkin: p.weaponSkin });
+                        io.emit('playerRespawn', p);
+                    });
+
+                    io.emit('lobbyStateUpdate', lobby);
+                }
+            }
         }
     }
 }, 1000 / 20);

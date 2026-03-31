@@ -168,6 +168,9 @@ let prevTime = performance.now();
 let isSpectator = false;
 
 let currentLobby = '';
+let currentGameMode = 'ffa';
+let currentMaxHealth = 100;
+let stormMesh;
 
 // --- SHOP & CURRENCY SYSTEM ---
 let totalKills = parseInt(localStorage.getItem('fpsTotalKills')) || 0;
@@ -276,6 +279,8 @@ document.getElementById('playBtn').addEventListener('click', () => {
     isSpectator = false;
     document.getElementById('mainMenu').style.display = 'none';
     currentLobby = document.getElementById('lobbyCodeInput').value.trim() || 'public';
+    currentGameMode = document.getElementById('gameModeSelect').value;
+    currentMaxHealth = parseInt(document.getElementById('healthSelect').value) || 100;
 
     // Show UI
     document.getElementById('crosshair').style.display = 'block';
@@ -295,6 +300,8 @@ document.getElementById('spectateBtn').addEventListener('click', () => {
     isSpectator = true;
     document.getElementById('mainMenu').style.display = 'none';
     currentLobby = document.getElementById('lobbyCodeInput').value.trim() || 'public';
+    currentGameMode = document.getElementById('gameModeSelect').value;
+    currentMaxHealth = parseInt(document.getElementById('healthSelect').value) || 100;
 
     // Hide combat UI for spectators
     document.getElementById('crosshair').style.display = 'none';
@@ -342,6 +349,8 @@ function initNetwork() {
             map: currentMap,
             isSpectator: isSpectator,
             lobby: currentLobby,
+            gameMode: currentGameMode,
+            maxHealth: currentMaxHealth,
             playerSkin: equippedPlayerSkin,
             weaponSkin: equippedWeaponSkin
         });
@@ -378,6 +387,56 @@ function initNetwork() {
         } else {
             // Already have it, refill ammo? (If ammo system exists, skipping for now)
             setMode(data.weaponType);
+        }
+    });
+
+    socket.on('lobbyStateUpdate', (lobby) => {
+        if (lobby.id !== currentLobby) return;
+
+        const statusEl = document.getElementById('stormStatus');
+        const aliveEl = document.getElementById('playersAlive');
+        const aliveCount = document.getElementById('aliveCount');
+
+        if (lobby.mode === 'br' || lobby.mode === 'zonewars') {
+            statusEl.style.display = 'block';
+            aliveEl.style.display = 'block';
+
+            if (lobby.state === 'waiting') {
+                statusEl.innerText = `Waiting for Match...`;
+                statusEl.style.color = '#fff';
+            } else if (lobby.state === 'playing') {
+                statusEl.innerText = `Storm Phase ${lobby.stormPhase}`;
+                statusEl.style.color = '#cc00ff';
+            } else if (lobby.state === 'ended') {
+                statusEl.innerText = `Match Ended!`;
+                statusEl.style.color = '#00ffcc';
+            }
+
+            aliveCount.innerText = lobby.playersAlive;
+
+            // Update or create Storm Mesh
+            if (lobby.state === 'playing') {
+                if (!stormMesh) {
+                    const stormGeo = new THREE.CylinderGeometry(1, 1, 500, 32, 1, true);
+                    const stormMat = new THREE.MeshStandardMaterial({
+                        color: 0x8800ff, transparent: true, opacity: 0.3,
+                        side: THREE.DoubleSide, emissive: 0x440088, depthWrite: false
+                    });
+                    stormMesh = new THREE.Mesh(stormGeo, stormMat);
+                    scene.add(stormMesh);
+                }
+                // Animate storm radius shrinking
+                stormMesh.targetRadius = lobby.stormRadius;
+                stormMesh.targetPosition = new THREE.Vector3(lobby.stormCenter.x, 0, lobby.stormCenter.z);
+            } else {
+                if (stormMesh) {
+                    scene.remove(stormMesh);
+                    stormMesh = null;
+                }
+            }
+        } else {
+            statusEl.style.display = 'none';
+            aliveEl.style.display = 'none';
         }
     });
 
@@ -480,9 +539,28 @@ function initNetwork() {
                 const visorMesh = new THREE.Mesh(visorGeo, visorMat);
                 visorMesh.position.set(0, 1.45, -0.26); // Front of face
 
+                // Arms (Blocky, holding an invisible weapon posture)
+                const armGeo = new THREE.BoxGeometry(0.25, 0.8, 0.25);
+                const armMat = new THREE.MeshStandardMaterial({ color: skinColor, metalness: 0.6, roughness: 0.2 });
+                const leftArm = new THREE.Mesh(armGeo, armMat);
+                leftArm.position.set(-0.55, 0.6, -0.3); leftArm.rotation.x = -Math.PI / 4; leftArm.castShadow = true;
+                const rightArm = new THREE.Mesh(armGeo, armMat);
+                rightArm.position.set(0.55, 0.6, -0.3); rightArm.rotation.x = -Math.PI / 4; rightArm.castShadow = true;
+
+                // Legs (Blocky)
+                const legGeo = new THREE.BoxGeometry(0.3, 0.6, 0.3);
+                const legMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(skinColor).lerp(new THREE.Color(0x000000), 0.3).getHex(), metalness: 0.6, roughness: 0.2 });
+                const leftLeg = new THREE.Mesh(legGeo, legMat);
+                leftLeg.position.set(-0.2, -0.3, 0); leftLeg.castShadow = true; // Relative to body
+                const rightLeg = new THREE.Mesh(legGeo, legMat);
+                rightLeg.position.set(0.2, -0.3, 0); rightLeg.castShadow = true;
+                pBodyMesh.add(leftLeg, rightLeg); // Add legs to body so they move with it
+
                 playerGroup.add(pBodyMesh);
                 playerGroup.add(headMesh);
                 playerGroup.add(visorMesh);
+                playerGroup.add(leftArm);
+                playerGroup.add(rightArm);
 
                 // Invisible hitbox for raycaster
                 const hitboxGeo = new THREE.BoxGeometry(1, 2, 1);
@@ -518,7 +596,9 @@ function initNetwork() {
     socket.on('playerHealthUpdate', (data) => {
         if (data.id === myId) {
             health = data.health;
-            document.getElementById('healthBar').style.width = Math.max(0, health) + '%';
+            const healthPct = Math.max(0, (health / currentMaxHealth) * 100);
+            document.getElementById('healthBar').style.width = healthPct + '%';
+            document.getElementById('healthText').innerText = `${health} HP`;
         }
     });
 
@@ -535,6 +615,7 @@ function initNetwork() {
         if (data.id === myId) {
             health = data.health;
             document.getElementById('healthBar').style.width = '100%';
+            document.getElementById('healthText').innerText = `${health} HP`;
 
             // Teleport physics body
             playerBody.position.set(data.x, data.y, data.z);
@@ -830,7 +911,11 @@ function init() {
     const arGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.08), greyPolymer); arGrip.rotation.x = Math.PI / 16; arGrip.position.set(0, -0.12, 0.15);
     const arRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.3), arNeonMat); arRail.position.set(0, 0.06, -0.3);
     const arSightGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.02), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5})); arSightGlass.position.set(0, 0.15, 0.05);
-    arMesh.add(arReceiver, arBarrel, arHandguard, arStock, arMag, arGrip, arRail, arSightGlass);
+    // Added details: Side rails, charging handle, muzzle brake
+    const arMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 8), darkMetal); arMuzzle.rotation.x = Math.PI/2; arMuzzle.position.set(0, 0.02, -0.72);
+    const arSideRailL = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.02, 0.25), darkMetal); arSideRailL.position.set(-0.045, 0, -0.3);
+    const arSideRailR = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.02, 0.25), darkMetal); arSideRailR.position.set(0.045, 0, -0.3);
+    arMesh.add(arReceiver, arBarrel, arHandguard, arStock, arMag, arGrip, arRail, arSightGlass, arMuzzle, arSideRailL, arSideRailR);
 
     // Create SMG Mesh (Compact, faster)
     const smgMesh = new THREE.Group();
@@ -863,11 +948,15 @@ function init() {
     const snipReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.5), darkMetal); snipReceiver.position.set(0, 0, 0.1);
     const snipBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0, 16), darkMetal); snipBarrel.rotation.x = Math.PI / 2; snipBarrel.position.set(0, 0.02, -0.6);
     const snipScope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 16), darkMetal); snipScope.rotation.x = Math.PI / 2; snipScope.position.set(0, 0.15, 0);
+    const snipScopeMount1 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.02), darkMetal); snipScopeMount1.position.set(0, 0.1, 0.1);
+    const snipScopeMount2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.02), darkMetal); snipScopeMount2.position.set(0, 0.1, -0.1);
     const snipStock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.3), greyPolymer); snipStock.position.set(0, -0.03, 0.5);
+    const snipStockPad = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.05), new THREE.MeshStandardMaterial({color: 0x050505})); snipStockPad.position.set(0, -0.03, 0.65);
     const snipMag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.08), greyPolymer); snipMag.position.set(0, -0.12, 0.1);
     const snipGrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.06), greyPolymer); snipGrip.rotation.x = Math.PI / 16; snipGrip.position.set(0, -0.1, 0.25);
     const snipRail = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 0.4), snipNeonMat); snipRail.position.set(0, 0.06, -0.3);
-    sniperMesh.add(snipReceiver, snipBarrel, snipScope, snipStock, snipMag, snipGrip, snipRail);
+    const snipMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.15, 8), darkMetal); snipMuzzle.rotation.x = Math.PI/2; snipMuzzle.position.set(0, 0.02, -1.1);
+    sniperMesh.add(snipReceiver, snipBarrel, snipScope, snipScopeMount1, snipScopeMount2, snipStock, snipStockPad, snipMag, snipGrip, snipRail, snipMuzzle);
 
     // Create Pistol Mesh (Small)
     const pistolMesh = new THREE.Group();
@@ -877,7 +966,10 @@ function init() {
     const pistGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.08), greyPolymer); pistGrip.rotation.x = Math.PI / 16; pistGrip.position.set(0, -0.08, 0.05);
     const pistBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.1), darkMetal); pistBarrel.position.set(0, 0.02, -0.2);
     const pistRail = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.01, 0.15), pistNeonMat); pistRail.position.set(0, 0.05, -0.1);
-    pistolMesh.add(pistReceiver, pistGrip, pistBarrel, pistRail);
+    const pistSlide = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.04, 0.25), greyPolymer); pistSlide.position.set(0, 0.05, -0.05);
+    const pistSight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.02), pistNeonMat); pistSight.position.set(0, 0.07, -0.15);
+    const pistLaser = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.1, 8), new THREE.MeshBasicMaterial({color: 0xff0000})); pistLaser.rotation.x = Math.PI/2; pistLaser.position.set(0, -0.02, -0.15);
+    pistolMesh.add(pistReceiver, pistGrip, pistBarrel, pistRail, pistSlide, pistSight, pistLaser);
 
     // Muzzle Flash Visuals (V11)
     const flashGroup = new THREE.Group();
@@ -930,6 +1022,12 @@ function init() {
         skyColor = 0x33BBFF; // Strong sky blue
         fogColor = 0x33BBFF;
         fogDensity = 0.0005;
+    } else if (currentMap === 'br_island') {
+        groundColor = 0xFFD27F; // Warm vibrant sand
+        groundSize = 800; // Massive
+        skyColor = 0x33BBFF; // Strong sky blue
+        fogColor = 0x33BBFF;
+        fogDensity = 0.0005;
     } else if (currentMap === 'platform') {
         groundColor = 0x404040; // Slate gray
         groundSize = 80;
@@ -972,6 +1070,18 @@ function init() {
         skyColor = 0x87CEEB; // Clear sky
         fogColor = 0x88AA88; // Slight green haze
         fogDensity = 0.004;
+    } else if (currentMap === 'cyber_city') {
+        groundColor = 0x111115; // Dark asphalt
+        groundSize = 200;
+        skyColor = 0x050011; // Dark neon sky
+        fogColor = 0x220033;
+        fogDensity = 0.005;
+    } else if (currentMap === 'moon_base') {
+        groundColor = 0x666666; // Grey moon dust
+        groundSize = 300;
+        skyColor = 0x000000; // Space
+        fogColor = 0x000000;
+        fogDensity = 0.002;
     }
 
     scene.background = new THREE.Color(skyColor);
@@ -1056,7 +1166,9 @@ function init() {
         if (currentMap === 'desert') dustColor = 0xE6C280;
         if (currentMap === 'lava') dustColor = 0xFF5500;
         if (currentMap === 'snow') dustColor = 0xFFFFFF; // Snowflakes
-        if (currentMap === 'forest') dustColor = 0x88CC88; // Leaves/pollen
+        if (currentMap === 'forest' || currentMap === 'br_island') dustColor = 0x88CC88; // Leaves/pollen
+        if (currentMap === 'cyber_city') dustColor = 0x00ffcc; // Neon rain
+        if (currentMap === 'moon_base') dustColor = 0xaaaaaa; // Moon dust
 
         const dustMat = new THREE.PointsMaterial({
             color: dustColor,
@@ -1078,7 +1190,7 @@ function init() {
     if (currentMap === 'lava') dirLight.color.setHex(0xffaa55);
 
     // Only nullify environment if we aren't using the dynamic sky
-    if (currentMap === 'space' || currentMap === 'platform' || currentMap === 'lava') {
+    if (['space', 'platform', 'lava', 'cyber_city', 'moon_base'].includes(currentMap)) {
         scene.environment = null;
     }
     hemiLight.color.setHex(skyColor);
@@ -1110,7 +1222,7 @@ function init() {
             gctx.fillStyle = Math.random() > 0.5 ? '#3CB343' : '#57E864';
             gctx.fillRect(Math.random()*512, Math.random()*512, 4, 15 + Math.random()*15);
         }
-    } else if (currentMap === 'island' || currentMap === 'desert') {
+    } else if (currentMap === 'island' || currentMap === 'desert' || currentMap === 'br_island') {
         // Sand texture with speckles and wavy dunes
         for(let i=0; i<1000; i++) {
             gctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)';
@@ -1169,6 +1281,20 @@ function init() {
         for(let i=0; i<500; i++) {
             gctx.fillStyle = Math.random() > 0.5 ? '#3B7038' : '#453521'; // Grass or dirt
             gctx.beginPath(); gctx.arc(Math.random()*512, Math.random()*512, 5+Math.random()*15, 0, Math.PI*2); gctx.fill();
+        }
+    } else if (currentMap === 'cyber_city') {
+        gctx.fillStyle = '#111115'; gctx.fillRect(0,0,512,512);
+        gctx.strokeStyle = '#ff00ff'; gctx.lineWidth = 2; gctx.shadowBlur = 10; gctx.shadowColor = '#00ffcc';
+        for(let i=0; i<512; i+=64) {
+            gctx.strokeRect(i, 0, 64, 512);
+            gctx.strokeRect(0, i, 512, 64);
+        }
+        gctx.shadowBlur = 0;
+    } else if (currentMap === 'moon_base') {
+        gctx.fillStyle = '#666666'; gctx.fillRect(0,0,512,512);
+        gctx.fillStyle = '#444444';
+        for(let i=0; i<50; i++) {
+            gctx.beginPath(); gctx.arc(Math.random()*512, Math.random()*512, 5+Math.random()*20, 0, Math.PI*2); gctx.fill();
         }
     }
 
@@ -1235,6 +1361,10 @@ function init() {
             // Rolling dunes
             y = Math.sin(x * 0.05) * Math.cos(z * 0.05) * 5;
             y += Math.sin(x * 0.1) * 2;
+        } else if (currentMap === 'br_island') {
+            // Larger hills and valleys
+            y = Math.sin(x * 0.02) * Math.cos(z * 0.02) * 15;
+            y += Math.sin(x * 0.05) * 5;
         } else if (currentMap === 'lava') {
             // Jagged rocks and sunken lava pits
             y = Math.sin(x * 0.1) * Math.sin(z * 0.1) * 3;
@@ -1246,6 +1376,10 @@ function init() {
             // Hilly uneven ground
             y = Math.sin(x * 0.08) * Math.cos(z * 0.06) * 4;
             y += Math.sin(x * 0.2) * 1;
+        } else if (currentMap === 'moon_base') {
+            // Craters (inverted bumps)
+            y = Math.sin(x * 0.1) * Math.sin(z * 0.1) * 3;
+            if (y > 0) y *= 0.5; // Flatten the peaks, keep the craters deep
         }
 
         vertices[i+1] = y * flattenFactor;
@@ -1294,8 +1428,8 @@ function init() {
     world.addBody(groundBody);
 
     // Stylized Ocean for Island map (Graphics V12)
-    if (currentMap === 'island') {
-        const oceanSize = 250; // Much smaller ocean size to avoid massive CPU overhead in JS and playwright
+    if (currentMap === 'island' || currentMap === 'br_island') {
+        const oceanSize = currentMap === 'br_island' ? 1200 : 250; // Much smaller ocean size to avoid massive CPU overhead in JS and playwright
         const oceanSegs = 16; // Fewer segments for performance
         const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, oceanSegs, oceanSegs);
         oceanGeo.rotateX(-Math.PI / 2);
@@ -1548,11 +1682,12 @@ function createParticles(position, type = 'spark', count = 10) {
 
 function useHeal() {
     if (isSpectator) return;
-    if (health <= 0 || health >= 100) return;
+    if (health <= 0 || health >= currentMaxHealth) return;
 
     // Optimistically update health
-    health = Math.min(100, health + 25);
-    document.getElementById('healthBar').style.width = Math.max(0, health) + '%';
+    health = Math.min(currentMaxHealth, health + 25);
+    const healthPct = Math.max(0, (health / currentMaxHealth) * 100);
+    document.getElementById('healthBar').style.width = healthPct + '%';
     document.getElementById('healthText').innerText = `${health} HP`;
 
     // Let server know
@@ -1924,6 +2059,19 @@ function animate() {
     } else {
         interactionText.style.display = 'none';
         window.currentPickupId = null;
+    }
+
+    // Smooth Storm transition
+    if (stormMesh && stormMesh.targetRadius !== undefined) {
+        const r = stormMesh.scale.x;
+        const newR = THREE.MathUtils.lerp(r, stormMesh.targetRadius, delta * 0.5);
+        stormMesh.scale.set(newR, 1, newR);
+
+        stormMesh.position.x = THREE.MathUtils.lerp(stormMesh.position.x, stormMesh.targetPosition.x, delta * 0.5);
+        stormMesh.position.z = THREE.MathUtils.lerp(stormMesh.position.z, stormMesh.targetPosition.z, delta * 0.5);
+
+        // Rotate storm texture/mesh slowly
+        stormMesh.rotation.y += delta * 0.1;
     }
 
     // Update Dust Particles
