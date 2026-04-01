@@ -210,7 +210,11 @@ const availableEmotes = [
     { id: 'none', name: 'None', price: 0 },
     { id: 'wave', name: 'Wave', price: 50 },
     { id: 'spin', name: 'Spin', price: 150 },
-    { id: 'flip', name: 'Backflip', price: 300 }
+    { id: 'flip', name: 'Backflip', price: 300 },
+    { id: 'tpose', name: 'T-Pose', price: 400 },
+    { id: 'headbang', name: 'Headbang', price: 600 },
+    { id: 'levitate', name: 'Levitate', price: 1000 },
+    { id: 'floss', name: 'Floss Dance', price: 1500 }
 ];
 
 function updateMenuCoinsDisplay() {
@@ -350,6 +354,16 @@ document.getElementById('playBtn').addEventListener('click', () => {
     document.getElementById('hotbar').style.display = 'flex';
     document.getElementById('healthBarContainer').style.display = 'block';
     document.getElementById('instructions').style.display = 'flex';
+
+    // Show Emote Hint if one is equipped
+    const emoteHint = document.getElementById('emoteHelpText');
+    if (equippedEmote !== 'none') {
+        emoteHint.style.display = 'block';
+        const emoteName = availableEmotes.find(e => e.id === equippedEmote)?.name || 'Emote';
+        document.getElementById('equippedEmoteName').innerText = emoteName;
+    } else {
+        emoteHint.style.display = 'none';
+    }
 
     currentMap = document.getElementById('mapSelect').value;
 
@@ -2338,6 +2352,39 @@ function animate() {
                 if (elapsed > 1000) {
                     p.activeEmote = 'none';
                     p.group.rotation.x = 0;
+                }
+            } else if (p.activeEmote === 'tpose') {
+                leftArm.rotation.x = 0; leftArm.rotation.z = Math.PI / 2;
+                rightArm.rotation.x = 0; rightArm.rotation.z = -Math.PI / 2;
+                if (elapsed > 3000) p.activeEmote = 'none';
+            } else if (p.activeEmote === 'headbang') {
+                const head = p.group.children[1];
+                const visor = p.group.children[2];
+                const angle = Math.sin(elapsed * 0.02) * (Math.PI / 4) + (Math.PI / 8);
+                head.rotation.x = angle;
+                visor.rotation.x = angle;
+                if (elapsed > 3000) {
+                    p.activeEmote = 'none';
+                    head.rotation.x = 0;
+                    visor.rotation.x = 0;
+                }
+            } else if (p.activeEmote === 'levitate') {
+                const progress = Math.min(1, elapsed / 3000);
+                p.group.position.y += Math.sin(elapsed * 0.005) * 0.02;
+                leftArm.rotation.x = -Math.PI; leftArm.rotation.z = Math.sin(elapsed * 0.005) * 0.1;
+                rightArm.rotation.x = -Math.PI; rightArm.rotation.z = -Math.sin(elapsed * 0.005) * 0.1;
+                if (elapsed > 4000) p.activeEmote = 'none';
+            } else if (p.activeEmote === 'floss') {
+                const phase = elapsed * 0.015;
+                leftArm.rotation.z = Math.sin(phase) * Math.PI / 4;
+                rightArm.rotation.z = Math.sin(phase + Math.PI) * Math.PI / 4;
+                leftArm.rotation.x = Math.PI / 8;
+                rightArm.rotation.x = Math.PI / 8;
+                // Hip sway
+                body.rotation.y = Math.sin(phase * 2) * 0.3;
+                if (elapsed > 3000) {
+                    p.activeEmote = 'none';
+                    body.rotation.y = 0;
                 }
             }
         } else {
