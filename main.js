@@ -187,14 +187,22 @@ let equippedEmote = localStorage.getItem('fpsEquippedEmote') || 'none';
 const playerSkins = [
     { id: 'default', name: 'Basic Red', price: 0, color: 0xff0044 },
     { id: 'blue', name: 'Azure Blue', price: 100, color: 0x00aaff },
+    { id: 'green', name: 'Toxic Slime', price: 250, color: 0x33ff00 },
     { id: 'gold', name: 'Solid Gold', price: 500, color: 0xffaa00 },
-    { id: 'cyber', name: 'Cyberpunk', price: 1000, color: 0xcc00ff }
+    { id: 'phantom', name: 'Phantom White', price: 750, color: 0xeeeeee },
+    { id: 'cyber', name: 'Cyberpunk', price: 1000, color: 0xcc00ff },
+    { id: 'stealth', name: 'Stealth Black', price: 1500, color: 0x111111 },
+    { id: 'magma', name: 'Magma Core', price: 2500, color: 0xff3300 }
 ];
 
 const weaponSkins = [
     { id: 'default', name: 'Standard Grey', price: 0, color: 0x2A2A30 },
+    { id: 'camo', name: 'Desert Camo', price: 150, color: 0xC2B280 },
     { id: 'neon', name: 'Neon Green', price: 200, color: 0x00ff00 },
+    { id: 'glacier', name: 'Glacier Blue', price: 300, color: 0x88ccff },
     { id: 'crimson', name: 'Crimson Red', price: 400, color: 0xaa0000 },
+    { id: 'galactic', name: 'Galactic Purple', price: 800, color: 0x6600cc },
+    { id: 'obsidian', name: 'Obsidian', price: 1200, color: 0x0a0a0a },
     { id: 'darkmatter', name: 'Dark Matter', price: 2000, color: 0x050505 }
 ];
 
