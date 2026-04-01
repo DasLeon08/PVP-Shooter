@@ -415,6 +415,10 @@
         <div id="healthText">100 HP</div>
     </div>
 
+    <div id="ammoContainer" style="display: none; position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 10px #00ffcc; font-family: 'Teko', sans-serif;">
+        Ammo: <span id="ammoText">30</span>
+    </div>
+
     <div id="hotbar" style="display: none;">
         <div class="slot active" id="slot-1">
             <span class="slot-label">AR</span>
@@ -456,6 +460,11 @@
             <svg class="slot-icon" viewBox="0 0 24 24"><path d="M3,21V3H5V19H21V21H3M19,5L5,19H19V5Z" /></svg>
             <span class="slot-number">6</span>
         </div>
+        <div class="slot" id="slot-0">
+            <span class="slot-label">Bounce</span>
+            <svg class="slot-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-8c0-3.03 2.47-5.5 5.5-5.5s5.5 2.47 5.5 5.5h-2c0-1.93-1.57-3.5-3.5-3.5s-3.5 1.57-3.5 3.5h-2z" /></svg>
+            <span class="slot-number">0</span>
+        </div>
         <div class="slot" id="slot-7">
             <span class="slot-label">Heal</span>
             <svg class="slot-icon" viewBox="0 0 24 24"><path d="M10,2H14V5H17V9H14V12H10V9H7V5H10V2M10,14H14V17H17V21H14V24H10V21H7V17H10V14Z" /></svg>
@@ -481,12 +490,12 @@
     <div id="instructions">
         <h1 style="font-size: 48px; margin-bottom: 10px;">Click to Play</h1>
         <p style="font-size: 20px;">
-            WASD = Move | SPACE = Jump<br>
+            WASD = Move | SPACE = Jump | SHIFT = Sprint<br>
             Left Click = Shoot / Build / Heal<br>
             Right Click = Aim (Weapon) / Rotate (Build)<br>
-            E = Pick Up Weapon<br>
+            R = Reload | E = Pick Up Weapon<br>
             1/2/3/8/9 = Weapons<br>
-            4/5/6 = Build<br>
+            4/5/6/0 = Build<br>
             7 = Heal<br>
             B = Emote<br>
             ESC = Pause

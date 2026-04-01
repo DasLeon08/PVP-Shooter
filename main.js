@@ -28,15 +28,27 @@ let weaponSpawnsLocal = {}; // Store pickup meshes
 let myWeapons = []; // Don't have weapons initially
 let interactionText;
 
+// Ammo System
+const ammoState = {
+    'ar': { current: 30, max: 30 },
+    'smg': { current: 40, max: 40 },
+    'shotgun': { current: 8, max: 8 },
+    'sniper': { current: 5, max: 5 },
+    'pistol': { current: 12, max: 12 }
+};
+let isReloading = false;
+
 // Build System State
 let currentMode = 'hands'; // weapon, wall, floor, ramp
 const GRID_SIZE = 5;
 let gunMesh;
 
-// Weapon & Camera Sway State
+// Weapon, Movement & Camera Sway State
 const baseGunPosition = new THREE.Vector3(0.3, -0.3, -0.5);
 let gunSwayVelocity = new THREE.Vector2(0, 0);
 let bobTimer = 0;
+let isSprinting = false;
+let targetFov = 75;
 
 // Particles
 let particles = [];
@@ -685,6 +697,13 @@ function initNetwork() {
                 const visorMesh = new THREE.Mesh(visorGeo, visorMat);
                 visorMesh.position.set(0, 1.45, -0.26); // Front of face
 
+                // Backpack / Jetpack
+                const packGeo = new THREE.BoxGeometry(0.6, 0.8, 0.2);
+                const packMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(skinColor).lerp(new THREE.Color(0x000000), 0.5).getHex(), metalness: 0.8, roughness: 0.3 });
+                const packMesh = new THREE.Mesh(packGeo, packMat);
+                packMesh.position.set(0, 0.6, 0.3);
+                packMesh.castShadow = true;
+
                 // Arms (Blocky, holding an invisible weapon posture)
                 const armGeo = new THREE.BoxGeometry(0.25, 0.8, 0.25);
                 const armMat = new THREE.MeshStandardMaterial({ color: skinColor, metalness: 0.6, roughness: 0.2 });
@@ -700,7 +719,15 @@ function initNetwork() {
                 leftLeg.position.set(-0.2, -0.3, 0); leftLeg.castShadow = true; // Relative to body
                 const rightLeg = new THREE.Mesh(legGeo, legMat);
                 rightLeg.position.set(0.2, -0.3, 0); rightLeg.castShadow = true;
+
+                // Feet
+                const footGeo = new THREE.BoxGeometry(0.32, 0.15, 0.4);
+                const footMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+                const leftFoot = new THREE.Mesh(footGeo, footMat); leftFoot.position.set(0, -0.3, 0.05); leftLeg.add(leftFoot);
+                const rightFoot = new THREE.Mesh(footGeo, footMat); rightFoot.position.set(0, -0.3, 0.05); rightLeg.add(rightFoot);
+
                 pBodyMesh.add(leftLeg, rightLeg); // Add legs to body so they move with it
+                pBodyMesh.add(packMesh); // Attach pack to body
 
                 playerGroup.add(pBodyMesh);
                 playerGroup.add(headMesh);
@@ -1010,6 +1037,9 @@ function init() {
                 }
                 canJump = false;
                 break;
+            case 'ShiftLeft':
+                isSprinting = true;
+                break;
         }
     };
 
@@ -1030,6 +1060,9 @@ function init() {
             case 'ArrowRight':
             case 'KeyD':
                 moveRight = false;
+                break;
+            case 'ShiftLeft':
+                isSprinting = false;
                 break;
         }
     };
@@ -1071,6 +1104,15 @@ function init() {
             contactNormal.copy(contact.ni); // bi is something else. Keep the normal as it is
         }
 
+        // Check if we hit a bouncer
+        let otherBody = contact.bi.id == playerBody.id ? contact.bj : contact.bi;
+        if (otherBody.userData && otherBody.userData.type === 'bouncer' && contactNormal.dot(upAxis) > 0.5) {
+            // Apply massive upward velocity
+            playerBody.velocity.y = 25.0;
+            canJump = false; // Prevents jumping again mid-air
+            return;
+        }
+
         // If contactNormal.dot(upAxis) is between 0 and 1, we know that the contact normal is somewhat in the up direction.
         if(contactNormal.dot(upAxis) > 0.5) { // Use a "non-strict" equality here (e.g., > 0.5) to allow jumping on ramps.
             canJump = true;
@@ -1106,12 +1148,13 @@ function init() {
     const arMag = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.2, 0.1), greyPolymer); arMag.rotation.x = -Math.PI / 16; arMag.position.set(0, -0.15, 0);
     const arGrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.08), greyPolymer); arGrip.rotation.x = Math.PI / 16; arGrip.position.set(0, -0.12, 0.15);
     const arRail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.3), arNeonMat); arRail.position.set(0, 0.06, -0.3);
-    const arSightGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.02), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5})); arSightGlass.position.set(0, 0.15, 0.05);
+    const arSightGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.02), new THREE.MeshStandardMaterial({color: 0x00ffcc, transparent: true, opacity: 0.4, emissive: 0x00ffcc, emissiveIntensity: 0.5, side: THREE.DoubleSide})); arSightGlass.position.set(0, 0.15, 0.05);
+    const arHoloDot = new THREE.Mesh(new THREE.PlaneGeometry(0.01, 0.01), new THREE.MeshBasicMaterial({color: 0xff0000})); arHoloDot.position.set(0, 0.15, 0.04);
     // Added details: Side rails, charging handle, muzzle brake
     const arMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 8), darkMetal); arMuzzle.rotation.x = Math.PI/2; arMuzzle.position.set(0, 0.02, -0.72);
     const arSideRailL = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.02, 0.25), darkMetal); arSideRailL.position.set(-0.045, 0, -0.3);
     const arSideRailR = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.02, 0.25), darkMetal); arSideRailR.position.set(0.045, 0, -0.3);
-    arMesh.add(arReceiver, arBarrel, arHandguard, arStock, arMag, arGrip, arRail, arSightGlass, arMuzzle, arSideRailL, arSideRailR);
+    arMesh.add(arReceiver, arBarrel, arHandguard, arStock, arMag, arGrip, arRail, arSightGlass, arHoloDot, arMuzzle, arSideRailL, arSideRailR);
 
     // Create SMG Mesh (Compact, faster)
     const smgMesh = new THREE.Group();
@@ -1152,7 +1195,8 @@ function init() {
     const snipGrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.06), greyPolymer); snipGrip.rotation.x = Math.PI / 16; snipGrip.position.set(0, -0.1, 0.25);
     const snipRail = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.015, 0.4), snipNeonMat); snipRail.position.set(0, 0.06, -0.3);
     const snipMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.15, 8), darkMetal); snipMuzzle.rotation.x = Math.PI/2; snipMuzzle.position.set(0, 0.02, -1.1);
-    sniperMesh.add(snipReceiver, snipBarrel, snipScope, snipScopeMount1, snipScopeMount2, snipStock, snipStockPad, snipMag, snipGrip, snipRail, snipMuzzle);
+    const snipLens = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.01, 16), new THREE.MeshStandardMaterial({color: 0x88ccff, transparent: true, opacity: 0.8, emissive: 0x88ccff, emissiveIntensity: 1.0})); snipLens.rotation.x = Math.PI/2; snipLens.position.set(0, 0.15, -0.15);
+    sniperMesh.add(snipReceiver, snipBarrel, snipScope, snipScopeMount1, snipScopeMount2, snipStock, snipStockPad, snipMag, snipGrip, snipRail, snipMuzzle, snipLens);
 
     // Create Pistol Mesh (Small)
     const pistolMesh = new THREE.Group();
@@ -1730,6 +1774,7 @@ function init() {
             case 'Digit7': setMode('heal'); break;
             case 'KeyE': interactWithPickup(); break;
             case 'KeyB': triggerEmote(); break;
+            case 'KeyR': reloadWeapon(); break;
         }
     });
 
@@ -1771,6 +1816,10 @@ function spawnBuildingFromServer(data) {
     } else if (data.type === 'floor') {
         geo = new THREE.BoxGeometry(GRID_SIZE, 0.5, GRID_SIZE);
         shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.25, GRID_SIZE/2));
+    } else if (data.type === 'bouncer') {
+        geo = new THREE.BoxGeometry(GRID_SIZE, 0.5, GRID_SIZE);
+        shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.25, GRID_SIZE/2));
+        materialToUse = new THREE.MeshStandardMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 1.5, wireframe: true });
     } else if (data.type === 'ramp') {
         const rampShape2D = new THREE.Shape();
         rampShape2D.moveTo(0, 0);
@@ -1845,6 +1894,8 @@ function spawnBuildingFromServer(data) {
         body.position.y += GRID_SIZE/2;
     }
 
+    body.userData = { type: data.type };
+
     world.addBody(body);
     builtObjects.push({ mesh, body, id: data.id });
 }
@@ -1877,6 +1928,14 @@ function createShockwave(position, normal) {
 }
 
 function createParticles(position, type = 'spark', count = 10) {
+    // Impact dynamic lighting flash (Graphics V16)
+    if (type === 'spark') {
+        const flashLight = new THREE.PointLight(0xffaa00, 5, 5);
+        flashLight.position.copy(position);
+        scene.add(flashLight);
+        setTimeout(() => scene.remove(flashLight), 50);
+    }
+
     for (let i = 0; i < count; i++) {
         const mesh = new THREE.Mesh(
             particleGeo,
@@ -1889,14 +1948,15 @@ function createParticles(position, type = 'spark', count = 10) {
         mesh.position.y += (Math.random() - 0.5) * 0.5;
         mesh.position.z += (Math.random() - 0.5) * 0.5;
 
-        // Random velocity
+        scene.add(mesh);
+
         const velocity = new THREE.Vector3(
-            (Math.random() - 0.5) * (type === 'spark' ? 10 : 5),
-            Math.random() * (type === 'spark' ? 5 : 8) + 2,
-            (Math.random() - 0.5) * (type === 'spark' ? 10 : 5)
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 10 + 5, // upward bias
+            (Math.random() - 0.5) * 10
         );
 
-        scene.add(mesh);
+        if (type === 'debris') velocity.multiplyScalar(0.5); // Debris slower
 
         particles.push({
             mesh: mesh,
@@ -1929,9 +1989,58 @@ function useHeal() {
     }
 }
 
+function updateAmmoUI() {
+    const ammoContainer = document.getElementById('ammoContainer');
+    const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+
+    if (isWeaponMode) {
+        ammoContainer.style.display = 'block';
+        const ammo = ammoState[currentMode];
+        document.getElementById('ammoText').innerText = isReloading ? "Reloading..." : `${ammo.current} / ${ammo.max}`;
+    } else {
+        ammoContainer.style.display = 'none';
+    }
+}
+
+function reloadWeapon() {
+    if (isSpectator || !['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode) || isReloading) return;
+
+    const ammo = ammoState[currentMode];
+    if (ammo.current === ammo.max) return; // Already full
+
+    isReloading = true;
+    updateAmmoUI();
+
+    // Visual reload animation (dip gun down)
+    gunMesh.position.y -= 0.2;
+    gunMesh.rotation.x -= 0.5;
+
+    setTimeout(() => {
+        ammo.current = ammo.max;
+        isReloading = false;
+
+        // Reset gun position
+        gunMesh.position.y += 0.2;
+        gunMesh.rotation.x += 0.5;
+
+        updateAmmoUI();
+    }, 1500); // 1.5s reload time
+}
+
 function shoot() {
     if (isSpectator) return;
     if (health <= 0) return; // Dead players can't shoot
+    if (isReloading) return;
+
+    const ammo = ammoState[currentMode];
+    if (ammo) {
+        if (ammo.current <= 0) {
+            reloadWeapon();
+            return;
+        }
+        ammo.current--;
+        updateAmmoUI();
+    }
 
     let damage = 35; // default AR
     let kickback = 0.15;
@@ -1958,6 +2067,10 @@ function shoot() {
     // Visual recoil & muzzle flash animation
     gunMesh.position.z = baseGunPosition.z + kickback; // Kickback
     gunMesh.rotation.x = muzzleClimb; // Upward muzzle climb
+
+    // Camera shake recoil (Graphics V16)
+    camera.rotation.x += (Math.random() * 0.05) * (damage / 100);
+    camera.rotation.y += (Math.random() - 0.5) * 0.02;
 
     const flashGroup = gunMesh.getObjectByName("muzzleFlash");
     if (flashGroup) {
@@ -2054,7 +2167,9 @@ function destroyBuilding(mesh) {
 }
 
 function setMode(mode) {
+    if (isReloading) return; // Prevent switching while reloading
     currentMode = mode;
+    updateAmmoUI();
 
     // Toggle weapon visibility
     const isWeapon = mode === 'ar' || mode === 'smg' || mode === 'shotgun' || mode === 'sniper' || mode === 'pistol';
@@ -2082,6 +2197,7 @@ function setMode(mode) {
     if(mode === 'wall') document.getElementById('slot-4').classList.add('active');
     if(mode === 'floor') document.getElementById('slot-5').classList.add('active');
     if(mode === 'ramp') document.getElementById('slot-6').classList.add('active');
+    if(mode === 'bouncer') document.getElementById('slot-0').classList.add('active');
     if(mode === 'heal') document.getElementById('slot-7').classList.add('active');
 
     // Reset rotation on mode switch
@@ -2089,12 +2205,13 @@ function setMode(mode) {
 }
 
 function placeBuilding() {
-    if (!['wall', 'floor', 'ramp'].includes(currentMode)) return; // Safety check
+    if (!['wall', 'floor', 'ramp', 'bouncer'].includes(currentMode)) return; // Safety check
 
     let activeGhost = currentMode === 'ramp' ? ghostRampMesh : ghostMesh;
 
     let geo;
     let shape;
+    let mat = buildMaterial;
 
     if (currentMode === 'wall') {
         geo = new THREE.BoxGeometry(GRID_SIZE, GRID_SIZE, 0.5);
@@ -2102,13 +2219,17 @@ function placeBuilding() {
     } else if (currentMode === 'floor') {
         geo = new THREE.BoxGeometry(GRID_SIZE, 0.5, GRID_SIZE);
         shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.25, GRID_SIZE/2));
+    } else if (currentMode === 'bouncer') {
+        geo = new THREE.BoxGeometry(GRID_SIZE, 0.5, GRID_SIZE);
+        shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.25, GRID_SIZE/2));
+        mat = new THREE.MeshStandardMaterial({ color: 0xff00ff, emissive: 0xff00ff, emissiveIntensity: 1.5, wireframe: true });
     } else if (currentMode === 'ramp') {
         // Simple approximation for cannon.js physics for ramp (using a box rotated)
         geo = ghostRampMesh.geometry.clone(); // Re-use the extrude geometry
         shape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.5, Math.sqrt(GRID_SIZE*GRID_SIZE * 2)/2));
     }
 
-    const mesh = new THREE.Mesh(geo, buildMaterial);
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.position.copy(activeGhost.position);
     mesh.rotation.copy(activeGhost.rotation);
     mesh.castShadow = true;
@@ -2158,13 +2279,15 @@ function placeBuilding() {
         body.position.y += GRID_SIZE/2;
     }
 
+    body.userData = { type: currentMode };
+
     world.addBody(body);
 
     builtObjects.push({ mesh, body, id: tempId, isTemp: true });
 }
 
 function updateGhostPlacement() {
-    const isBuilding = ['wall', 'floor', 'ramp'].includes(currentMode);
+    const isBuilding = ['wall', 'floor', 'ramp', 'bouncer'].includes(currentMode);
     if (!isBuilding) {
         ghostMesh.visible = false;
         ghostRampMesh.visible = false;
@@ -2211,7 +2334,7 @@ function updateGhostPlacement() {
         }
         // Position wall between grid centers
         snappedY += GRID_SIZE / 2;
-    } else if (currentMode === 'floor') {
+    } else if (currentMode === 'floor' || currentMode === 'bouncer') {
         if (ghostMesh.geometry !== ghostMaterial.userData.floorGeo) {
             ghostMesh.geometry = ghostMaterial.userData.floorGeo;
         }
@@ -2525,9 +2648,17 @@ function animate() {
         moveDir.normalize();
 
         if (moveForward || moveBackward || moveLeft || moveRight) {
-             playerBody.velocity.x = moveDir.x * speed;
-             playerBody.velocity.z = moveDir.z * speed;
+             const currentSpeed = isSprinting ? speed * 1.5 : speed;
+             playerBody.velocity.x = moveDir.x * currentSpeed;
+             playerBody.velocity.z = moveDir.z * currentSpeed;
+             targetFov = isSprinting ? 95 : 75;
+        } else {
+             targetFov = 75;
         }
+
+        // Handle FOV changes for sprint feel
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, delta * 10);
+        camera.updateProjectionMatrix();
 
         // Update Building ghost
         updateGhostPlacement();
