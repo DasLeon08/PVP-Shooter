@@ -176,35 +176,45 @@ let currentMaxHealth = 100;
 let stormMesh;
 
 // --- SHOP & CURRENCY SYSTEM ---
-let totalKills = parseInt(localStorage.getItem('fpsTotalKills')) || 0;
+let coins = parseInt(localStorage.getItem('fpsCoins')) || 0;
 let ownedPlayerSkins = JSON.parse(localStorage.getItem('fpsOwnedPlayerSkins')) || ['default'];
 let ownedWeaponSkins = JSON.parse(localStorage.getItem('fpsOwnedWeaponSkins')) || ['default'];
+let ownedEmotes = JSON.parse(localStorage.getItem('fpsOwnedEmotes')) || ['none'];
 let equippedPlayerSkin = localStorage.getItem('fpsEquippedPlayerSkin') || 'default';
 let equippedWeaponSkin = localStorage.getItem('fpsEquippedWeaponSkin') || 'default';
+let equippedEmote = localStorage.getItem('fpsEquippedEmote') || 'none';
 
 const playerSkins = [
     { id: 'default', name: 'Basic Red', price: 0, color: 0xff0044 },
-    { id: 'blue', name: 'Azure Blue', price: 10, color: 0x00aaff },
-    { id: 'gold', name: 'Solid Gold', price: 50, color: 0xffaa00 },
-    { id: 'cyber', name: 'Cyberpunk', price: 100, color: 0xcc00ff }
+    { id: 'blue', name: 'Azure Blue', price: 100, color: 0x00aaff },
+    { id: 'gold', name: 'Solid Gold', price: 500, color: 0xffaa00 },
+    { id: 'cyber', name: 'Cyberpunk', price: 1000, color: 0xcc00ff }
 ];
 
 const weaponSkins = [
     { id: 'default', name: 'Standard Grey', price: 0, color: 0x2A2A30 },
-    { id: 'neon', name: 'Neon Green', price: 20, color: 0x00ff00 },
-    { id: 'crimson', name: 'Crimson Red', price: 40, color: 0xaa0000 },
-    { id: 'darkmatter', name: 'Dark Matter', price: 200, color: 0x050505 }
+    { id: 'neon', name: 'Neon Green', price: 200, color: 0x00ff00 },
+    { id: 'crimson', name: 'Crimson Red', price: 400, color: 0xaa0000 },
+    { id: 'darkmatter', name: 'Dark Matter', price: 2000, color: 0x050505 }
 ];
 
-function updateMenuKillsDisplay() {
-    const displays = document.querySelectorAll('#menuKillsDisplay, #shopBalanceDisplay');
-    displays.forEach(d => d.innerText = totalKills);
+const availableEmotes = [
+    { id: 'none', name: 'None', price: 0 },
+    { id: 'wave', name: 'Wave', price: 50 },
+    { id: 'spin', name: 'Spin', price: 150 },
+    { id: 'flip', name: 'Backflip', price: 300 }
+];
+
+function updateMenuCoinsDisplay() {
+    const displays = document.querySelectorAll('#menuCoinsDisplay, #shopBalanceDisplay');
+    displays.forEach(d => d.innerText = coins);
 }
-updateMenuKillsDisplay(); // Initial set
+updateMenuCoinsDisplay(); // Initial set
 
 function renderShop() {
     const pGrid = document.getElementById('playerSkinsGrid');
     const wGrid = document.getElementById('weaponSkinsGrid');
+    const eGrid = document.getElementById('emotesGrid');
 
     pGrid.innerHTML = '';
     playerSkins.forEach(skin => {
@@ -215,21 +225,21 @@ function renderShop() {
         div.className = `shop-item ${isOwned ? 'owned' : ''} ${isEquipped ? 'equipped' : ''}`;
         div.innerHTML = `
             <div class="item-name" style="color: #${skin.color.toString(16).padStart(6, '0')}">${skin.name}</div>
-            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Kills'}</div>
+            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Coins'}</div>
         `;
         div.onclick = () => {
             if (isOwned) {
                 equippedPlayerSkin = skin.id;
                 localStorage.setItem('fpsEquippedPlayerSkin', skin.id);
                 renderShop();
-            } else if (totalKills >= skin.price) {
-                totalKills -= skin.price;
+            } else if (coins >= skin.price) {
+                coins -= skin.price;
                 ownedPlayerSkins.push(skin.id);
                 equippedPlayerSkin = skin.id;
-                localStorage.setItem('fpsTotalKills', totalKills);
+                localStorage.setItem('fpsCoins', coins);
                 localStorage.setItem('fpsOwnedPlayerSkins', JSON.stringify(ownedPlayerSkins));
                 localStorage.setItem('fpsEquippedPlayerSkin', skin.id);
-                updateMenuKillsDisplay();
+                updateMenuCoinsDisplay();
                 renderShop();
             }
         };
@@ -245,25 +255,55 @@ function renderShop() {
         div.className = `shop-item ${isOwned ? 'owned' : ''} ${isEquipped ? 'equipped' : ''}`;
         div.innerHTML = `
             <div class="item-name" style="color: #${skin.color.toString(16).padStart(6, '0')}">${skin.name}</div>
-            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Kills'}</div>
+            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : skin.price + ' Coins'}</div>
         `;
         div.onclick = () => {
             if (isOwned) {
                 equippedWeaponSkin = skin.id;
                 localStorage.setItem('fpsEquippedWeaponSkin', skin.id);
                 renderShop();
-            } else if (totalKills >= skin.price) {
-                totalKills -= skin.price;
+            } else if (coins >= skin.price) {
+                coins -= skin.price;
                 ownedWeaponSkins.push(skin.id);
                 equippedWeaponSkin = skin.id;
-                localStorage.setItem('fpsTotalKills', totalKills);
+                localStorage.setItem('fpsCoins', coins);
                 localStorage.setItem('fpsOwnedWeaponSkins', JSON.stringify(ownedWeaponSkins));
                 localStorage.setItem('fpsEquippedWeaponSkin', skin.id);
-                updateMenuKillsDisplay();
+                updateMenuCoinsDisplay();
                 renderShop();
             }
         };
         wGrid.appendChild(div);
+    });
+
+    eGrid.innerHTML = '';
+    availableEmotes.forEach(emote => {
+        const isOwned = ownedEmotes.includes(emote.id);
+        const isEquipped = equippedEmote === emote.id;
+
+        const div = document.createElement('div');
+        div.className = `shop-item ${isOwned ? 'owned' : ''} ${isEquipped ? 'equipped' : ''}`;
+        div.innerHTML = `
+            <div class="item-name" style="color: #ff00ff">${emote.name}</div>
+            <div class="item-price ${isOwned ? 'owned-text' : ''}">${isEquipped ? 'Equipped' : isOwned ? 'Owned' : emote.price + ' Coins'}</div>
+        `;
+        div.onclick = () => {
+            if (isOwned) {
+                equippedEmote = emote.id;
+                localStorage.setItem('fpsEquippedEmote', emote.id);
+                renderShop();
+            } else if (coins >= emote.price) {
+                coins -= emote.price;
+                ownedEmotes.push(emote.id);
+                equippedEmote = emote.id;
+                localStorage.setItem('fpsCoins', coins);
+                localStorage.setItem('fpsOwnedEmotes', JSON.stringify(ownedEmotes));
+                localStorage.setItem('fpsEquippedEmote', emote.id);
+                updateMenuCoinsDisplay();
+                renderShop();
+            }
+        };
+        eGrid.appendChild(div);
     });
 }
 
@@ -277,6 +317,17 @@ document.getElementById('closeShopBtn').addEventListener('click', () => {
     document.getElementById('shopMenu').style.display = 'none';
     document.getElementById('mainMenu').style.display = 'flex';
 });
+
+document.getElementById('introScreen').addEventListener('click', () => {
+    document.getElementById('introScreen').style.opacity = '0';
+    setTimeout(() => {
+        document.getElementById('introScreen').style.display = 'none';
+        document.getElementById('mainMenu').style.display = 'flex';
+    }, 500);
+});
+
+// Initially hide main menu to let intro show
+document.getElementById('mainMenu').style.display = 'none';
 
 document.getElementById('playBtn').addEventListener('click', () => {
     isSpectator = false;
@@ -647,14 +698,19 @@ function initNetwork() {
 
                 otherPlayers[id] = {
                     group: playerGroup,
-                    hitbox: hitbox // Store hitbox reference for shooting
+                    hitbox: hitbox, // Store hitbox reference for shooting
+                    activeEmote: 'none',
+                    emoteTimer: 0
                 };
             }
 
             // Update position and rotation smoothly
             // Adjust y so feet are at ground level (player physics body radius is 0.5, position is center)
             otherPlayers[id].group.position.set(p.x, p.y - 0.5, p.z);
-            otherPlayers[id].group.rotation.y = p.rotation;
+            // Only update body rotation if not spinning
+            if (otherPlayers[id].activeEmote !== 'spin') {
+                otherPlayers[id].group.rotation.y = p.rotation;
+            }
         }
 
         // Remove players that disconnected
@@ -675,12 +731,47 @@ function initNetwork() {
         }
     });
 
+    socket.on('playerEmoting', (data) => {
+        if (otherPlayers[data.id]) {
+            otherPlayers[data.id].activeEmote = data.emote;
+            otherPlayers[data.id].emoteTimer = performance.now();
+        }
+    });
+
     socket.on('playerDied', (data) => {
-        // If we got the kill, update our local total and save
+        // If we got the kill, reward 10 coins per kill
         if (data.killerId === myId) {
-            totalKills += 1;
-            localStorage.setItem('fpsTotalKills', totalKills);
-            updateMenuKillsDisplay();
+            coins += 10;
+            localStorage.setItem('fpsCoins', coins);
+            updateMenuCoinsDisplay();
+
+            // Show a visual +10 Coins on screen
+            const coinText = document.createElement('div');
+            coinText.innerText = "+10 Coins";
+            coinText.style.position = "absolute";
+            coinText.style.top = "50%";
+            coinText.style.left = "50%";
+            coinText.style.transform = "translate(-50%, -50%)";
+            coinText.style.color = "#ffaa00";
+            coinText.style.fontSize = "40px";
+            coinText.style.fontWeight = "bold";
+            coinText.style.textShadow = "0 0 10px #ffaa00";
+            coinText.style.zIndex = "100";
+            document.body.appendChild(coinText);
+
+            // Animate up and fade out
+            let posY = 50;
+            let opacity = 1;
+            const anim = setInterval(() => {
+                posY -= 0.5;
+                opacity -= 0.02;
+                coinText.style.top = posY + "%";
+                coinText.style.opacity = opacity;
+                if (opacity <= 0) {
+                    clearInterval(anim);
+                    document.body.removeChild(coinText);
+                }
+            }, 30);
         }
     });
 
@@ -1616,6 +1707,7 @@ function init() {
             case 'Digit6': setMode('ramp'); break;
             case 'Digit7': setMode('heal'); break;
             case 'KeyE': interactWithPickup(); break;
+            case 'KeyB': triggerEmote(); break;
         }
     });
 
@@ -2139,6 +2231,20 @@ function interactWithPickup() {
     }
 }
 
+function triggerEmote() {
+    if (isSpectator || equippedEmote === 'none') return;
+    socket.emit('triggerEmote', { emote: equippedEmote });
+
+    // Play our own animation in first person (simple screen shake/bob for now since arms aren't rendered separately)
+    const originalY = camera.position.y;
+    if (equippedEmote === 'flip') {
+        const shake = setInterval(() => {
+            camera.rotation.x += 0.1;
+        }, 16);
+        setTimeout(() => clearInterval(shake), 1000);
+    }
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
@@ -2198,6 +2304,45 @@ function animate() {
         bot.group.children[0].position.y = 0.6 + Math.sin(time * 0.01) * 0.05;
         bot.group.children[1].position.y = 1.45 + Math.sin(time * 0.01) * 0.05;
         bot.group.children[2].position.y = 1.45 + Math.sin(time * 0.01) * 0.05;
+    }
+
+    // Animate Emotes on other players
+    for (let id in otherPlayers) {
+        const p = otherPlayers[id];
+        if (p.activeEmote !== 'none') {
+            const elapsed = time - p.emoteTimer;
+            const body = p.group.children[0];
+            const leftArm = p.group.children[3];
+            const rightArm = p.group.children[4];
+
+            if (p.activeEmote === 'wave') {
+                rightArm.rotation.x = Math.sin(elapsed * 0.01) * 0.5 - Math.PI/2;
+                rightArm.rotation.z = Math.sin(elapsed * 0.01) * 0.5;
+                if (elapsed > 2000) p.activeEmote = 'none'; // stop after 2s
+            } else if (p.activeEmote === 'spin') {
+                p.group.rotation.y += delta * 10;
+                if (elapsed > 1500) p.activeEmote = 'none';
+            } else if (p.activeEmote === 'flip') {
+                // Backflip entire group around X axis
+                const progress = Math.min(1, elapsed / 1000);
+                p.group.rotation.x = progress * Math.PI * 2;
+                p.group.position.y += Math.sin(progress * Math.PI) * delta * 5;
+                if (elapsed > 1000) {
+                    p.activeEmote = 'none';
+                    p.group.rotation.x = 0;
+                }
+            }
+        } else {
+            // Reset arm positions if not emoting
+            if (p.group.children[3]) {
+                p.group.children[3].rotation.x = -Math.PI / 4;
+                p.group.children[3].rotation.z = 0;
+            }
+            if (p.group.children[4]) {
+                p.group.children[4].rotation.x = -Math.PI / 4;
+                p.group.children[4].rotation.z = 0;
+            }
+        }
     }
 
     // Update Dust Particles

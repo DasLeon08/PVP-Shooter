@@ -62,13 +62,26 @@
         #modeDisplay { font-size: 20px; color: #00ffcc; font-weight: 400;}
 
         /* Glassmorphism Main Menu */
-        #mainMenu, #shopMenu {
+        #introScreen, #mainMenu, #shopMenu {
             position: absolute;
             top: 0; left: 0; width: 100vw; height: 100vh;
             background: linear-gradient(135deg, rgba(20,20,30,0.9) 0%, rgba(10,10,20,0.9) 100%);
             display: flex; flex-direction: column; justify-content: center; align-items: center;
-            z-index: 20;
+            z-index: 30; /* Intro needs highest z-index */
             backdrop-filter: blur(10px);
+            transition: opacity 0.5s ease;
+        }
+        #mainMenu, #shopMenu { z-index: 20; }
+
+        @keyframes pulseText {
+            0% { opacity: 0.5; transform: scale(0.95); }
+            50% { opacity: 1; transform: scale(1.05); }
+            100% { opacity: 0.5; transform: scale(0.95); }
+        }
+        .intro-text {
+            font-size: 40px; color: #00ffcc; text-transform: uppercase; font-weight: 700;
+            letter-spacing: 4px; animation: pulseText 2s infinite; cursor: pointer;
+            text-shadow: 0 0 20px rgba(0,255,204,0.5);
         }
 
         /* Shop Grid */
@@ -215,10 +228,15 @@
     </script>
 </head>
 <body>
+    <div id="introScreen">
+        <h1 class="menu-title" style="font-size: 100px; margin-bottom: 50px;">1vs1 Web Shooter</h1>
+        <div class="intro-text">Click anywhere to start</div>
+    </div>
+
     <div id="shopMenu" style="display: none;">
         <div class="menu-container" style="max-width: 800px;">
             <h1 class="menu-title" style="font-size: 60px;">Skin Shop</h1>
-            <h2 class="menu-subtitle">Balance: <span id="shopBalanceDisplay" style="color: #ffaa00; font-weight: 600;">0</span> Kills</h2>
+            <h2 class="menu-subtitle">Balance: <span id="shopBalanceDisplay" style="color: #ffaa00; font-weight: 600;">0</span> Coins</h2>
 
             <div style="margin-top: 20px; text-align: left;">
                 <label style="font-size: 22px; display: block; margin-bottom: 10px; color: #ccc; text-align: center;">Player Skins</label>
@@ -230,6 +248,13 @@
             <div style="margin-top: 20px; text-align: left;">
                 <label style="font-size: 22px; display: block; margin-bottom: 10px; color: #ccc; text-align: center;">Weapon Skins</label>
                 <div class="shop-grid" id="weaponSkinsGrid">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; text-align: left;">
+                <label style="font-size: 22px; display: block; margin-bottom: 10px; color: #ccc; text-align: center;">Emotes (Press B to use)</label>
+                <div class="shop-grid" id="emotesGrid">
                     <!-- Populated by JS -->
                 </div>
             </div>
@@ -354,7 +379,7 @@
                 <button id="spectateBtn" class="menu-btn" style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid #555;">Spectate</button>
             </div>
 
-            <button id="openShopBtn" class="menu-btn" style="width: 100%; background: linear-gradient(45deg, #ff00ff, #00ffcc); color: white; border: none; font-size: 24px;">Open Shop (Kills: <span id="menuKillsDisplay">0</span>)</button>
+            <button id="openShopBtn" class="menu-btn" style="width: 100%; background: linear-gradient(45deg, #ff00ff, #00ffcc); color: white; border: none; font-size: 24px;">Open Shop (Coins: <span id="menuCoinsDisplay">0</span>)</button>
 
             <script>
                 // Map card selection logic

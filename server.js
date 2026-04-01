@@ -419,6 +419,11 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle Emotes
+    socket.on('triggerEmote', (data) => {
+        io.emit('playerEmoting', { id: socket.id, emote: data.emote });
+    });
+
     // Handle Weapon Pickups
     socket.on('pickupWeapon', (data) => {
         const spawnId = data.spawnId;
