@@ -409,6 +409,20 @@ io.on('connection', (socket) => {
         io.emit('objectBuilt', newObj);
     });
 
+    // Handle Editing
+    socket.on('editObject', (data) => {
+        const objId = data.objId;
+        const editType = data.editType;
+
+        if (builtObjects[objId]) {
+            // Only allow owner or server to edit
+            if (builtObjects[objId].ownerId === socket.id || builtObjects[objId].ownerId === 'server') {
+                builtObjects[objId].editType = editType;
+                io.emit('objectEdited', { objId: objId, editType: editType });
+            }
+        }
+    });
+
     // Handle Healing
     socket.on('useHeal', (data) => {
         if (players[socket.id] && !players[socket.id].isSpectator) {

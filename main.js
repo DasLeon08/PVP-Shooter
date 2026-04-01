@@ -365,6 +365,7 @@ document.getElementById('playBtn').addEventListener('click', () => {
     document.getElementById('ui').style.display = 'block';
     document.getElementById('hotbar').style.display = 'flex';
     document.getElementById('healthBarContainer').style.display = 'block';
+    document.getElementById('minimapContainer').style.display = 'block';
     document.getElementById('instructions').style.display = 'flex';
 
     // Show Emote Hint if one is equipped
@@ -396,6 +397,7 @@ document.getElementById('spectateBtn').addEventListener('click', () => {
     document.getElementById('ui').style.display = 'none';
     document.getElementById('hotbar').style.display = 'none';
     document.getElementById('healthBarContainer').style.display = 'none';
+    document.getElementById('minimapContainer').style.display = 'none';
     document.getElementById('instructions').style.display = 'flex'; // Still need instructions to start
 
     currentMap = document.getElementById('mapSelect').value;
@@ -614,6 +616,82 @@ function initNetwork() {
         if (data.map !== currentMap || data.lobby !== currentLobby) return;
 
         spawnBuildingFromServer(data);
+    });
+
+    socket.on('objectEdited', (data) => {
+        const objId = data.objId;
+        const index = builtObjects.findIndex(obj => obj.id === objId);
+        if (index > -1) {
+            const obj = builtObjects[index];
+            const editType = data.editType;
+
+            // Remove old geometry
+            obj.mesh.geometry.dispose();
+
+            if (obj.body.userData.type === 'wall' && editType === 'door') {
+                // Wall with door hole
+                const doorShape = new THREE.Shape();
+                doorShape.moveTo(-GRID_SIZE/2, -GRID_SIZE/2);
+                doorShape.lineTo(GRID_SIZE/2, -GRID_SIZE/2);
+                doorShape.lineTo(GRID_SIZE/2, GRID_SIZE/2);
+                doorShape.lineTo(-GRID_SIZE/2, GRID_SIZE/2);
+                doorShape.lineTo(-GRID_SIZE/2, -GRID_SIZE/2);
+
+                const hole = new THREE.Path();
+                hole.moveTo(-1, -GRID_SIZE/2);
+                hole.lineTo(1, -GRID_SIZE/2);
+                hole.lineTo(1, 1);
+                hole.lineTo(-1, 1);
+                hole.lineTo(-1, -GRID_SIZE/2);
+                doorShape.holes.push(hole);
+
+                const extrudeSettings = { depth: 0.5, bevelEnabled: false };
+                obj.mesh.geometry = new THREE.ExtrudeGeometry(doorShape, extrudeSettings);
+                // Fix extrude translation
+                obj.mesh.geometry.translate(0, 0, -0.25);
+
+                // Adjust physics (naive approach: just make it non-colliding in center or rely on the visual change for now, proper trimesh needed for perfect collision but box is okay)
+                world.removeBody(obj.body);
+                const p1 = new CANNON.Box(new CANNON.Vec3(0.75, GRID_SIZE/2, 0.25));
+                const p2 = new CANNON.Box(new CANNON.Vec3(0.75, GRID_SIZE/2, 0.25));
+                const p3 = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/2, 0.75, 0.25)); // top piece
+
+                const newBody = new CANNON.Body({ mass: 0, material: defaultMaterial });
+                newBody.addShape(p1, new CANNON.Vec3(-1.75, 0, 0));
+                newBody.addShape(p2, new CANNON.Vec3(1.75, 0, 0));
+                newBody.addShape(p3, new CANNON.Vec3(0, 1.75, 0));
+                newBody.position.copy(obj.body.position);
+                newBody.quaternion.copy(obj.body.quaternion);
+                newBody.userData = obj.body.userData;
+                world.addBody(newBody);
+                obj.body = newBody;
+
+            } else if (obj.body.userData.type === 'floor' && editType === 'half') {
+                obj.mesh.geometry = new THREE.BoxGeometry(GRID_SIZE/2, 0.5, GRID_SIZE);
+                obj.mesh.geometry.translate(-GRID_SIZE/4, 0, 0); // shift half
+
+                world.removeBody(obj.body);
+                const newShape = new CANNON.Box(new CANNON.Vec3(GRID_SIZE/4, 0.25, GRID_SIZE/2));
+                const newBody = new CANNON.Body({ mass: 0, material: defaultMaterial, shape: newShape });
+                newBody.position.copy(obj.body.position);
+                newBody.quaternion.copy(obj.body.quaternion);
+
+                // Shift physics position
+                const offset = new CANNON.Vec3(-GRID_SIZE/4, 0, 0);
+                offset.x = offset.x * Math.cos(newBody.quaternion.y) - offset.z * Math.sin(newBody.quaternion.y); // simplified rotation
+                newBody.position.vadd(offset, newBody.position);
+
+                newBody.userData = obj.body.userData;
+                world.addBody(newBody);
+                obj.body = newBody;
+            }
+
+            // Update outlines
+            obj.mesh.children.forEach(c => { if(c.isLineSegments) obj.mesh.remove(c); });
+            const edges = new THREE.EdgesGeometry(obj.mesh.geometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00ffcc, linewidth: 4, opacity: 0.9, transparent: true }));
+            obj.mesh.add(line);
+        }
     });
 
     socket.on('objectDestroyed', (data) => {
@@ -935,11 +1013,39 @@ function init() {
 
     const outputPass = new OutputPass();
 
+    // Overshield post-processing pass (Graphics V17) - Simple color tint if health > 100
+    const overshieldShader = {
+        uniforms: {
+            "tDiffuse": { value: null },
+            "shieldIntensity": { value: 0.0 }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D tDiffuse;
+            uniform float shieldIntensity;
+            varying vec2 vUv;
+            void main() {
+                vec4 texel = texture2D(tDiffuse, vUv);
+                // Add cyan tint
+                vec3 shieldColor = vec3(0.0, 0.8, 1.0);
+                gl_FragColor = vec4(mix(texel.rgb, shieldColor, shieldIntensity), texel.a);
+            }
+        `
+    };
+    window.overshieldPass = new ShaderPass(overshieldShader);
+
     composer = new EffectComposer(renderer, renderTarget);
     composer.addPass(renderScene);
     composer.addPass(ssaoPass);
     composer.addPass(bloomPass);
     composer.addPass(fxaaPass);
+    composer.addPass(window.overshieldPass);
     composer.addPass(filmPass);
     composer.addPass(vignettePass);
     composer.addPass(outputPass); // Applies tone mapping & color space conversion correctly
@@ -1775,6 +1881,7 @@ function init() {
             case 'KeyE': interactWithPickup(); break;
             case 'KeyB': triggerEmote(); break;
             case 'KeyR': reloadWeapon(); break;
+            case 'KeyG': editBuilding(); break;
         }
     });
 
@@ -2204,6 +2311,39 @@ function setMode(mode) {
     placementRotation = 0;
 }
 
+function editBuilding() {
+    if (isSpectator) return;
+
+    // Raycast from camera center to find a building
+    const raycaster = new THREE.Raycaster();
+    const center = new THREE.Vector2(0, 0);
+    raycaster.setFromCamera(center, camera);
+
+    const objectsToHit = builtObjects.map(obj => obj.mesh);
+    const intersects = raycaster.intersectObjects(objectsToHit);
+
+    if (intersects.length > 0 && intersects[0].distance < GRID_SIZE * 1.5) {
+        const hitMesh = intersects[0].object;
+
+        // Find in local array
+        const index = builtObjects.findIndex(obj => obj.mesh === hitMesh);
+        if (index > -1) {
+            const obj = builtObjects[index];
+
+            // Only allow editing our own buildings (or if server owns them for sandbox fun, but ideally only ours)
+            if (obj.mesh.userData && obj.mesh.userData.id) {
+                // If it's a wall, create a door hole
+                if (obj.body.userData.type === 'wall') {
+                    // Update server
+                    socket.emit('editObject', { objId: obj.mesh.userData.id, editType: 'door' });
+                } else if (obj.body.userData.type === 'floor') {
+                    socket.emit('editObject', { objId: obj.mesh.userData.id, editType: 'half' });
+                }
+            }
+        }
+    }
+}
+
 function placeBuilding() {
     if (!['wall', 'floor', 'ramp', 'bouncer'].includes(currentMode)) return; // Safety check
 
@@ -2390,11 +2530,95 @@ function triggerEmote() {
     }
 }
 
+function renderMinimap() {
+    if (isSpectator || !playerBody) return;
+
+    const canvas = document.getElementById('minimapCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, 200, 200);
+
+    // Config
+    const mapScale = 0.5; // How much world space fits in minimap
+    const centerX = 100;
+    const centerY = 100;
+
+    // Draw background/grid
+    ctx.fillStyle = 'rgba(0, 255, 204, 0.05)';
+    ctx.fillRect(0,0,200,200);
+    ctx.strokeStyle = 'rgba(0, 255, 204, 0.2)';
+    ctx.lineWidth = 1;
+    for(let i=0; i<200; i+=20) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 200); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(200, i); ctx.stroke();
+    }
+
+    const myPos = playerBody.position;
+
+    // Draw other players (red dots)
+    ctx.fillStyle = '#ff0000';
+    for (let id in otherPlayers) {
+        const p = otherPlayers[id].group.position;
+        const dx = (p.x - myPos.x) * mapScale;
+        const dz = (p.z - myPos.z) * mapScale;
+        // Only draw if within minimap bounds
+        if (Math.sqrt(dx*dx + dz*dz) < 100) {
+            ctx.beginPath(); ctx.arc(centerX + dx, centerY + dz, 4, 0, Math.PI*2); ctx.fill();
+        }
+    }
+
+    // Draw bots (green dots)
+    ctx.fillStyle = '#00ff00';
+    for (let id in botsLocal) {
+        const b = botsLocal[id].group.position;
+        const dx = (b.x - myPos.x) * mapScale;
+        const dz = (b.z - myPos.z) * mapScale;
+        if (Math.sqrt(dx*dx + dz*dz) < 100) {
+            ctx.beginPath(); ctx.arc(centerX + dx, centerY + dz, 3, 0, Math.PI*2); ctx.fill();
+        }
+    }
+
+    // Draw storm (purple circle)
+    if (stormMesh && stormMesh.targetRadius) {
+        const dx = (stormMesh.targetPosition.x - myPos.x) * mapScale;
+        const dz = (stormMesh.targetPosition.z - myPos.z) * mapScale;
+        const r = stormMesh.targetRadius * mapScale;
+        ctx.strokeStyle = '#cc00ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(centerX + dx, centerY + dz, r, 0, Math.PI*2); ctx.stroke();
+    }
+
+    // Draw self (cyan dot with direction)
+    ctx.fillStyle = '#00ffcc';
+    ctx.beginPath(); ctx.arc(centerX, centerY, 5, 0, Math.PI*2); ctx.fill();
+
+    // Direction line
+    const angle = controls.getObject().rotation.y;
+    ctx.strokeStyle = '#00ffcc';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    // Note: Canvas Y is down, Three Z is forward (-). Need to map angles correctly.
+    ctx.lineTo(centerX + Math.sin(angle) * 12, centerY - Math.cos(angle) * 12);
+    ctx.stroke();
+}
+
 function animate() {
     requestAnimationFrame(animate);
 
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
+
+    // Animate Overshield (Graphics V17)
+    if (window.overshieldPass) {
+        if (health > 100) {
+            const intensity = 0.05 + Math.sin(time * 0.005) * 0.02; // Pulsing shield
+            window.overshieldPass.uniforms["shieldIntensity"].value = intensity;
+        } else {
+            window.overshieldPass.uniforms["shieldIntensity"].value = 0.0;
+        }
+    }
 
     // Check for weapon pickups
     if (!interactionText) interactionText = document.getElementById('interactionText');
@@ -2734,6 +2958,9 @@ function animate() {
 
     // Offset camera slightly up to represent eye level (sphere radius is 0.5 + bobbing)
     controls.getObject().position.y += targetCameraY;
+
+    // Render the Minimap overlay
+    renderMinimap();
 
     // Use composer instead of renderer for bloom
     composer.render();
