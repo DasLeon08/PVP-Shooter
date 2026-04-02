@@ -109,7 +109,11 @@ const baseGunPosition = new THREE.Vector3(0.3, -0.3, -0.5);
 let gunSwayVelocity = new THREE.Vector2(0, 0);
 let bobTimer = 0;
 let isSprinting = false;
+let isCrouching = false;
+let isSliding = false;
+let slideTimer = 0;
 let targetFov = 75;
+let currentCrosshairSpread = 20;
 
 // Particles
 let particles = [];
@@ -916,6 +920,14 @@ function initNetwork() {
             const healthPct = Math.max(0, (health / currentMaxHealth) * 100);
             document.getElementById('healthBar').style.width = healthPct + '%';
             document.getElementById('healthText').innerText = `${health} HP`;
+
+            // Low health pulse effect
+            const overlay = document.getElementById('lowHealthOverlay');
+            if (health > 0 && health <= 30) {
+                overlay.style.boxShadow = 'inset 0 0 150px 50px rgba(255, 0, 0, 0.6)';
+            } else {
+                overlay.style.boxShadow = 'inset 0 0 150px 50px rgba(255, 0, 0, 0)';
+            }
         }
     });
 
@@ -988,6 +1000,7 @@ function initNetwork() {
             health = data.health;
             document.getElementById('healthBar').style.width = '100%';
             document.getElementById('healthText').innerText = `${health} HP`;
+            document.getElementById('lowHealthOverlay').style.boxShadow = 'inset 0 0 150px 50px rgba(255, 0, 0, 0)';
 
             // Teleport physics body
             playerBody.position.set(data.x, data.y, data.z);
@@ -1227,6 +1240,15 @@ function init() {
             case 'ShiftLeft':
                 isSprinting = true;
                 break;
+            case 'KeyC':
+                if (!isCrouching) {
+                    isCrouching = true;
+                    if (isSprinting && (moveForward || moveLeft || moveRight || moveBackward) && canJump) {
+                        isSliding = true;
+                        slideTimer = 0.8; // Slide duration
+                    }
+                }
+                break;
         }
     };
 
@@ -1250,6 +1272,10 @@ function init() {
                 break;
             case 'ShiftLeft':
                 isSprinting = false;
+                break;
+            case 'KeyC':
+                isCrouching = false;
+                isSliding = false;
                 break;
         }
     };
@@ -1310,6 +1336,18 @@ function init() {
     // However, if we don't have active collisions in the preStep, we should assume we're not grounded.
     world.addEventListener('preStep', () => {
         canJump = false;
+    });
+
+    // Crouch physics update
+    world.addEventListener('postStep', () => {
+        if (playerBody) {
+            // Adjust hit sphere shape when crouching/sliding
+            const targetRadius = isCrouching ? 0.25 : 0.5;
+            if (playerBody.shapes[0].radius !== targetRadius) {
+                playerBody.shapes[0].radius = targetRadius;
+                playerBody.shapes[0].updateBoundingSphereRadius();
+            }
+        }
     });
 
     // --- WEAPONS SYSTEM ---
@@ -2756,6 +2794,13 @@ function animate() {
         }
     }
 
+    // Animate Low Health Pulse
+    if (health > 0 && health <= 30) {
+        const pulse = 0.4 + Math.sin(time * 0.005) * 0.3; // values between 0.1 and 0.7
+        const overlay = document.getElementById('lowHealthOverlay');
+        if(overlay) overlay.style.boxShadow = `inset 0 0 150px 50px rgba(255, 0, 0, ${pulse})`;
+    }
+
     // Check for weapon pickups
     if (!interactionText) interactionText = document.getElementById('interactionText');
     let canPickup = false;
@@ -2993,6 +3038,9 @@ function animate() {
         direction.x = Number(moveRight) - Number(moveLeft);
         direction.normalize(); // Ensure consistent speed in all directions
 
+        // Update crosshair spread based on movement/shooting state
+        let targetSpread = 20;
+
         // Get camera rotation (yaw only for movement)
         const euler = new THREE.Euler(0, 0, 0, 'YXZ');
         euler.y = controls.getObject().rotation.y;
@@ -3008,12 +3056,42 @@ function animate() {
         moveDir.normalize();
 
         if (moveForward || moveBackward || moveLeft || moveRight) {
-             const currentSpeed = isSprinting ? speed * 1.5 : speed;
+             let currentSpeed = speed;
+             if (isSliding && slideTimer > 0) {
+                 currentSpeed = speed * 2.0 * (slideTimer / 0.8); // Fast then slow down
+                 slideTimer -= delta;
+                 if(slideTimer <= 0) isSliding = false;
+                 targetFov = 100; // Even wider FOV for sliding
+                 targetSpread = 40;
+             } else if (isCrouching) {
+                 currentSpeed = speed * 0.5;
+                 targetFov = 70;
+                 targetSpread = 15;
+             } else if (isSprinting) {
+                 currentSpeed = speed * 1.5;
+                 targetFov = 95;
+                 targetSpread = 50;
+             } else {
+                 targetFov = 75;
+                 targetSpread = 30;
+             }
              playerBody.velocity.x = moveDir.x * currentSpeed;
              playerBody.velocity.z = moveDir.z * currentSpeed;
-             targetFov = isSprinting ? 95 : 75;
         } else {
              targetFov = 75;
+             isSliding = false;
+             if (isCrouching) targetSpread = 10;
+        }
+
+        // Add spread from recoil
+        if (weaponRecoilState) targetSpread += 20;
+
+        // Lerp crosshair scale
+        currentCrosshairSpread += (targetSpread - currentCrosshairSpread) * delta * 15;
+        const ch = document.getElementById('crosshair');
+        if (ch) {
+             ch.style.width = `${currentCrosshairSpread}px`;
+             ch.style.height = `${currentCrosshairSpread}px`;
         }
 
         // Handle FOV changes for sprint feel
@@ -3043,7 +3121,7 @@ function animate() {
     controls.getObject().position.copy(playerBody.position);
 
     // View Bobbing & Weapon Sway logic
-    let targetCameraY = 0.5; // Base eye level
+    let targetCameraY = isCrouching ? 0.0 : 0.5; // Lower camera if crouching/sliding
 
     if (controls.isLocked) {
         // Calculate player speed in XZ plane
