@@ -114,6 +114,10 @@ let isSliding = false;
 let slideTimer = 0;
 let targetFov = 75;
 let currentCrosshairSpread = 20;
+let isAiming = false;
+let weaponRecoilState = false;
+let weaponRecoilTimer = 0;
+let defaultMaterial;
 
 // Particles
 let particles = [];
@@ -1174,7 +1178,7 @@ function init() {
         gravity: new CANNON.Vec3(0, -9.82, 0), // m/s²
     });
     // Default material interactions
-    const defaultMaterial = new CANNON.Material('default');
+    defaultMaterial = new CANNON.Material('default');
     const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
         friction: 0.1,
         restitution: 0.0
@@ -2020,7 +2024,16 @@ function init() {
         } else if (event.button === 2) { // Right click
             if (!isWeapon) {
                 placementRotation = (placementRotation + 1) % 4;
+            } else {
+                isAiming = true;
             }
+        }
+    });
+
+    document.addEventListener('mouseup', (event) => {
+        if (!controls.isLocked) return;
+        if (event.button === 2) { // Right click release
+            isAiming = false;
         }
     });
 
@@ -2092,6 +2105,20 @@ function spawnBuildingFromServer(data) {
     mesh.rotation.y = data.rotation;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+
+    // Spawn Animation for buildings
+    if (!isEnvironment) {
+        mesh.scale.set(0.1, 0.1, 0.1);
+        let animStep = 0.1;
+        const spawnAnim = setInterval(() => {
+            animStep += 0.15;
+            if (animStep >= 1.0) {
+                animStep = 1.0;
+                clearInterval(spawnAnim);
+            }
+            mesh.scale.set(animStep, animStep, animStep);
+        }, 16);
+    }
 
     mesh.userData = { isBuilding: true, health: data.health, id: data.id };
     scene.add(mesh);
@@ -2449,6 +2476,7 @@ function destroyBuilding(mesh) {
 function setMode(mode) {
     if (isReloading) return; // Prevent switching while reloading
     currentMode = mode;
+    isAiming = false; // Reset ADS on switch
     updateAmmoUI();
 
     // Toggle weapon visibility
@@ -2568,6 +2596,18 @@ function placeBuilding() {
     // Add health data for shooting later
     const tempId = 'temp_' + Math.random();
     mesh.userData = { isBuilding: true, health: 100, id: tempId };
+
+    // Spawn Animation for locally placed buildings
+    mesh.scale.set(0.1, 0.1, 0.1);
+    let animStep = 0.1;
+    const spawnAnim = setInterval(() => {
+        animStep += 0.15;
+        if (animStep >= 1.0) {
+            animStep = 1.0;
+            clearInterval(spawnAnim);
+        }
+        mesh.scale.set(animStep, animStep, animStep);
+    }, 16);
 
     scene.add(mesh);
 
