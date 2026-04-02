@@ -70,8 +70,32 @@ const AudioManager = {
         gain.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.3);
+    },
+    playFootstep: () => {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        // Use a noise buffer for crunchier footsteps
+        const bufferSize = audioCtx.sampleRate * 0.05; // 50ms of noise
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1000;
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start();
     }
 };
+
+let footstepTimer = 0;
 
 // --- Globals ---
 let camera, scene, renderer, composer;
@@ -801,9 +825,9 @@ function initNetwork() {
             // Don't render ourselves, players on different maps, or in different lobbies
             if (id === myId) continue;
 
-            if (p.map !== currentMap || p.lobby !== currentLobby) {
+            if (p.map !== currentMap || p.lobby !== currentLobby || p.isSpectator) {
                  if (otherPlayers[id]) {
-                     scene.remove(otherPlayers[id].mesh);
+                     scene.remove(otherPlayers[id].group);
                      delete otherPlayers[id];
                  }
                  continue;
@@ -932,6 +956,33 @@ function initNetwork() {
             } else {
                 overlay.style.boxShadow = 'inset 0 0 150px 50px rgba(255, 0, 0, 0)';
             }
+        } else if (otherPlayers[data.id]) {
+            // Flash enemy player red when they take damage
+            const group = otherPlayers[data.id].group;
+            group.children.forEach(mesh => {
+                if(mesh.material) {
+                    const originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+                    mesh.material.emissive = new THREE.Color(0xff0000);
+                    setTimeout(() => {
+                        if(mesh.material) mesh.material.emissive = originalEmissive;
+                    }, 100);
+                }
+            });
+        }
+    });
+
+    socket.on('botHit', (data) => {
+        if (botsLocal[data.id]) {
+            const group = botsLocal[data.id].group;
+            group.children.forEach(mesh => {
+                if(mesh.material) {
+                    const originalEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : new THREE.Color(0x000000);
+                    mesh.material.emissive = new THREE.Color(0xff0000);
+                    setTimeout(() => {
+                        if(mesh.material) mesh.material.emissive = originalEmissive;
+                    }, 100);
+                }
+            });
         }
     });
 
@@ -996,6 +1047,23 @@ function initNetwork() {
                     document.body.removeChild(coinText);
                 }
             }, 30);
+        }
+    });
+
+    socket.on('playerMapUpdate', (data) => {
+        if (data.id === myId) {
+            isSpectator = data.isSpectator;
+            if (isSpectator) {
+                // We died in a non-respawn mode
+                document.getElementById('crosshair').style.display = 'none';
+                document.getElementById('ui').style.display = 'none';
+                document.getElementById('hotbar').style.display = 'none';
+                document.getElementById('healthBarContainer').style.display = 'none';
+                document.getElementById('spectatorOverlay').style.display = 'block';
+                playerBody.velocity.set(0,0,0);
+                // Move out of the way
+                playerBody.position.set(0, 100, 0);
+            }
         }
     });
 
@@ -1306,8 +1374,11 @@ function init() {
     playerBody.linearDamping = 0.9; // Add some friction to movement
     world.addBody(playerBody);
 
-    // Jump logic detection
+    // Jump & Fall Damage logic detection
     canJump = false;
+    let wasGrounded = false;
+    let previousVerticalVelocity = 0;
+
     let contactNormal = new CANNON.Vec3(); // Normal in the contact, pointing *out* of whatever the player touched
     let upAxis = new CANNON.Vec3(0, 1, 0);
     playerBody.addEventListener("collide", function(e){
@@ -1333,12 +1404,26 @@ function init() {
         // If contactNormal.dot(upAxis) is between 0 and 1, we know that the contact normal is somewhat in the up direction.
         if(contactNormal.dot(upAxis) > 0.5) { // Use a "non-strict" equality here (e.g., > 0.5) to allow jumping on ramps.
             canJump = true;
+
+            // Fall Damage Calculation
+            if (!wasGrounded && previousVerticalVelocity < -15) {
+                // Calculate damage based on speed (e.g., -15 is safe, -25 is lethal)
+                const fallDamage = Math.floor(Math.pow(Math.abs(previousVerticalVelocity) - 15, 1.8));
+                if (fallDamage > 0 && !isSpectator) {
+                    if (socket) {
+                        // Apply damage to self
+                        socket.emit('playerHit', { targetId: myId, damage: fallDamage });
+                    }
+                }
+            }
         }
     });
 
     // We defer resetting canJump to allow it to be true during jump key processing.
     // However, if we don't have active collisions in the preStep, we should assume we're not grounded.
     world.addEventListener('preStep', () => {
+        wasGrounded = canJump; // Remember state before we reset it
+        previousVerticalVelocity = playerBody.velocity.y; // Record velocity before physics resolves collision
         canJump = false;
     });
 
@@ -3172,6 +3257,19 @@ function animate() {
             bobTimer += delta * 10.0;
             // Bob formula: sine wave based on time * speed
             targetCameraY = 0.5 + Math.sin(bobTimer) * 0.08;
+
+            // Footsteps
+            footstepTimer -= delta;
+            if (footstepTimer <= 0) {
+                AudioManager.playFootstep();
+                if (isSprinting && !isCrouching) {
+                    footstepTimer = 0.3;
+                } else if (isCrouching) {
+                    footstepTimer = 0.6;
+                } else {
+                    footstepTimer = 0.45;
+                }
+            }
 
             // Gun bobs with camera but slightly offset
             const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);

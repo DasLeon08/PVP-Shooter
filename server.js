@@ -331,6 +331,7 @@ io.on('connection', (socket) => {
         // PVE Bot Hit
         if (bots[targetId] && players[socket.id]) {
             bots[targetId].health -= damage;
+            io.emit('botHit', { id: targetId });
             if (bots[targetId].health <= 0) {
                 players[socket.id].kills += 1;
                 io.emit('playerDied', { id: targetId, killerId: socket.id });
