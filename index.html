@@ -397,7 +397,22 @@
         </div>
     </div>
 
-    <div id="crosshair" style="display: none;"><div class="dot"></div></div>
+    <div id="crosshair" style="display: none;">
+        <div class="dot"></div>
+        <!-- Hitmarker -->
+        <div id="hitmarker" style="display: none; position: absolute; top: -10px; left: -10px; width: 40px; height: 40px; pointer-events: none;">
+            <div style="position: absolute; top: 0; left: 0; width: 2px; height: 12px; background: white; transform: rotate(-45deg); transform-origin: 0 0; box-shadow: 0 0 5px white;"></div>
+            <div style="position: absolute; top: 0; right: 0; width: 2px; height: 12px; background: white; transform: rotate(45deg); transform-origin: 100% 0; box-shadow: 0 0 5px white;"></div>
+            <div style="position: absolute; bottom: 0; left: 0; width: 2px; height: 12px; background: white; transform: rotate(45deg); transform-origin: 0 100%; box-shadow: 0 0 5px white;"></div>
+            <div style="position: absolute; bottom: 0; right: 0; width: 2px; height: 12px; background: white; transform: rotate(-45deg); transform-origin: 100% 100%; box-shadow: 0 0 5px white;"></div>
+        </div>
+    </div>
+
+    <!-- Damage Popups Container -->
+    <div id="damagePopups" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20;"></div>
+
+    <!-- Kill Feed Container -->
+    <div id="killFeed" style="position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; pointer-events: none; z-index: 20; font-family: 'Teko', sans-serif;"></div>
 
     <div id="ui" style="display: none;">
         <h2>FPS Build Simulator</h2>

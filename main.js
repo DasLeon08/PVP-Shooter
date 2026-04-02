@@ -12,6 +12,67 @@ import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
 import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 
+// --- Audio System ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const AudioManager = {
+    playShoot: () => {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    },
+    playHit: (isHeadshot = false) => {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(isHeadshot ? 1200 : 800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(isHeadshot ? 2000 : 1200, audioCtx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    },
+    playBuild: () => {
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.05);
+    },
+    playKill: () => {
+         if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    }
+};
+
 // --- Globals ---
 let camera, scene, renderer, composer;
 let world;
@@ -866,11 +927,31 @@ function initNetwork() {
     });
 
     socket.on('playerDied', (data) => {
+        // Add to kill feed
+        const killFeed = document.getElementById('killFeed');
+        const entry = document.createElement('div');
+        entry.style.background = 'rgba(0,0,0,0.5)';
+        entry.style.padding = '5px 10px';
+        entry.style.borderRadius = '3px';
+        entry.style.borderLeft = '3px solid #ff00ff';
+        entry.style.color = 'white';
+        entry.style.fontSize = '18px';
+        entry.innerHTML = `<span style="color: #00ffcc">${data.killerId ? 'Player' : 'Environment'}</span> killed <span style="color: #ff3333">Player</span>`;
+        if (data.killerId === myId) entry.innerHTML = `<span style="color: #00ffcc">You</span> killed <span style="color: #ff3333">Player</span>`;
+        killFeed.appendChild(entry);
+        setTimeout(() => {
+            entry.style.transition = 'opacity 1s';
+            entry.style.opacity = '0';
+            setTimeout(() => entry.remove(), 1000);
+        }, 4000);
+
         // If we got the kill, reward 10 coins per kill
         if (data.killerId === myId) {
             coins += 10;
             localStorage.setItem('fpsCoins', coins);
             updateMenuCoinsDisplay();
+
+            AudioManager.playKill();
 
             // Show a visual +10 Coins on screen
             const coinText = document.createElement('div');
@@ -2139,6 +2220,7 @@ function shoot() {
     if (health <= 0) return; // Dead players can't shoot
     if (isReloading) return;
 
+    AudioManager.playShoot();
     const ammo = ammoState[currentMode];
     if (ammo) {
         if (ammo.current <= 0) {
@@ -2240,7 +2322,60 @@ function shoot() {
         if (hitMesh.userData) {
             if (hitMesh.userData.isPlayer || hitMesh.userData.isBot) {
                 // Hit another player or bot
-                socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: damage });
+                const isHeadshot = hit.point.y > hitMesh.position.y + 0.8;
+                const finalDamage = isHeadshot ? Math.floor(damage * 2) : damage;
+                socket.emit('playerHit', { targetId: hitMesh.userData.id, damage: finalDamage });
+
+                // Audio + Hitmarker
+                AudioManager.playHit(isHeadshot);
+                const hitmarker = document.getElementById('hitmarker');
+                hitmarker.style.display = 'block';
+                hitmarker.style.transform = 'scale(1.5)';
+                hitmarker.style.opacity = '1';
+                setTimeout(() => {
+                    hitmarker.style.transform = 'scale(1)';
+                    hitmarker.style.opacity = '0';
+                    setTimeout(() => hitmarker.style.display = 'none', 100);
+                }, 100);
+
+                // Damage Popup
+                const dmgPopup = document.createElement('div');
+                dmgPopup.innerText = finalDamage.toString();
+                dmgPopup.style.position = 'absolute';
+                dmgPopup.style.color = isHeadshot ? '#ffcc00' : 'white';
+                dmgPopup.style.fontWeight = 'bold';
+                dmgPopup.style.fontSize = isHeadshot ? '30px' : '20px';
+                dmgPopup.style.textShadow = '0 0 5px black';
+                document.getElementById('damagePopups').appendChild(dmgPopup);
+
+                // Initial 3D position logic
+                const posCopy = hit.point.clone();
+                let op = 1;
+                let yOffset = 0;
+
+                const animDmg = setInterval(() => {
+                    yOffset += 0.05;
+                    posCopy.y += 0.05;
+                    const screenPos = posCopy.clone().project(camera);
+
+                    if (screenPos.z > 1) {
+                        dmgPopup.style.display = 'none';
+                    } else {
+                        dmgPopup.style.display = 'block';
+                        const x = (screenPos.x * .5 + .5) * window.innerWidth;
+                        const y = (-(screenPos.y * .5) + .5) * window.innerHeight;
+                        dmgPopup.style.left = `${x}px`;
+                        dmgPopup.style.top = `${y}px`;
+                        dmgPopup.style.opacity = op;
+                    }
+
+                    op -= 0.02;
+                    if (op <= 0) {
+                        clearInterval(animDmg);
+                        dmgPopup.remove();
+                    }
+                }, 16);
+
             } else if (hitMesh.userData.isBuilding) {
                 // Tell server we hit a building
                 if (socket && hitMesh.userData.id) {
@@ -2346,6 +2481,7 @@ function editBuilding() {
 
 function placeBuilding() {
     if (!['wall', 'floor', 'ramp', 'bouncer'].includes(currentMode)) return; // Safety check
+    AudioManager.playBuild();
 
     let activeGhost = currentMode === 'ramp' ? ghostRampMesh : ghostMesh;
 
