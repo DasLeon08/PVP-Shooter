@@ -6,8 +6,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files from the current directory
-app.use(express.static('./'));
+// Serve static files from the public directory
+app.use(express.static('public'));
 
 // Game State
 const players = {};

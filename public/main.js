@@ -141,7 +141,10 @@ let currentCrosshairSpread = 20;
 let isAiming = false;
 let weaponRecoilState = false;
 let weaponRecoilTimer = 0;
+let screenShakeIntensity = 0;
 let defaultMaterial;
+let isShooting = false;
+let lastShotTime = 0;
 
 // Particles
 let particles = [];
@@ -1410,6 +1413,8 @@ function init() {
                 // Calculate damage based on speed (e.g., -15 is safe, -25 is lethal)
                 const fallDamage = Math.floor(Math.pow(Math.abs(previousVerticalVelocity) - 15, 1.8));
                 if (fallDamage > 0 && !isSpectator) {
+                    // Trigger massive screen shake on hard landing
+                    screenShakeIntensity = Math.min(0.5, fallDamage * 0.01);
                     if (socket) {
                         // Apply damage to self
                         socket.emit('playerHit', { targetId: myId, damage: fallDamage });
@@ -2104,7 +2109,7 @@ function init() {
             } else if (!isWeapon && (ghostMesh.visible || ghostRampMesh.visible)) {
                 placeBuilding();
             } else if (isWeapon) {
-                shoot();
+                isShooting = true;
             }
         } else if (event.button === 2) { // Right click
             if (!isWeapon) {
@@ -2117,7 +2122,9 @@ function init() {
 
     document.addEventListener('mouseup', (event) => {
         if (!controls.isLocked) return;
-        if (event.button === 2) { // Right click release
+        if (event.button === 0) {
+            isShooting = false;
+        } else if (event.button === 2) { // Right click release
             isAiming = false;
         }
     });
@@ -2365,10 +2372,32 @@ function reloadWeapon() {
     }, 1500); // 1.5s reload time
 }
 
-function shoot() {
+function shoot(time) {
     if (isSpectator) return;
     if (health <= 0) return; // Dead players can't shoot
     if (isReloading) return;
+
+    // Fire Rates (ms delay between shots)
+    const fireRates = {
+        'ar': 120, // Full Auto
+        'smg': 70, // Fast Auto
+        'shotgun': 800, // Pump
+        'sniper': 1500, // Bolt
+        'pistol': 200 // Semi
+    };
+
+    const rate = fireRates[currentMode] || 150;
+    if (time - lastShotTime < rate) return;
+
+    // For semi-auto weapons, we force mouseup before next shot
+    if (['shotgun', 'sniper', 'pistol'].includes(currentMode) && lastShotTime > 0 && time - lastShotTime < rate + 50) {
+        // Only allow shooting if we just pressed it (handled roughly by the loop delay)
+        // A better way: force them to release for semi-auto.
+        // For simplicity, we just rely on the delay, but we'll manually reset isShooting for semi-auto
+        isShooting = false;
+    }
+
+    lastShotTime = time;
 
     AudioManager.playShoot();
     const ammo = ammoState[currentMode];
@@ -3119,6 +3148,7 @@ function animate() {
         sw.mesh.material.opacity = sw.life;
         if (sw.life <= 0) {
             scene.remove(sw.mesh);
+            sw.mesh.material.dispose(); // Avoid memory leaks
             shockwaves.splice(i, 1);
         }
     }
@@ -3129,6 +3159,8 @@ function animate() {
         tracers[i].mesh.material.opacity = tracers[i].life;
         if (tracers[i].life <= 0) {
             scene.remove(tracers[i].mesh);
+            tracers[i].mesh.geometry.dispose(); // Avoid memory leaks
+            tracers[i].mesh.material.dispose();
             tracers.splice(i, 1);
         }
     }
@@ -3223,6 +3255,15 @@ function animate() {
         camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, delta * 10);
         camera.updateProjectionMatrix();
 
+        // Handle Screen Shake
+        if (screenShakeIntensity > 0) {
+            camera.position.x += (Math.random() - 0.5) * screenShakeIntensity;
+            camera.position.y += (Math.random() - 0.5) * screenShakeIntensity;
+            camera.position.z += (Math.random() - 0.5) * screenShakeIntensity;
+            screenShakeIntensity -= delta * 0.5; // Fade out shake
+            if (screenShakeIntensity < 0) screenShakeIntensity = 0;
+        }
+
         // Update Building ghost
         updateGhostPlacement();
 
@@ -3311,9 +3352,21 @@ function animate() {
     // Offset camera slightly up to represent eye level (sphere radius is 0.5 + bobbing)
     controls.getObject().position.y += targetCameraY;
 
+    // Handle Automatic Shooting
+    if (isShooting) {
+        const isWeaponMode = ['ar', 'smg', 'shotgun', 'sniper', 'pistol'].includes(currentMode);
+        if (isWeaponMode) {
+            shoot(time);
+        }
+    }
+
     // Render the Minimap overlay
     renderMinimap();
 
     // Use composer instead of renderer for bloom
-    composer.render();
+    if (health > 0 && !isSpectator) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
 }
